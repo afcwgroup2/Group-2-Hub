@@ -1859,8 +1859,8 @@ const canEditRefs=()=>S.isAdmin||isGroupCmd();
    Two parts. Tasker folders: every tasker has a folder per squadron, filled when squadrons submit. Library: a log of
    important files, each filed under a unit and a division. Who sees what follows the usual rules: squadron command
    staff see their squadron, a division chief sees their division, Group command staff see everything. */
-function filesBody(){ const [v,vSeg]=seg('filesv2',[['folders','Tasker folders'],['lib','Library']],'folders');
-  return h('div',{class:'stack'},h('div',{class:'row'},h('span',{class:'small muted',style:'flex:1'},v==='folders'?'Every tasker gets a folder for each squadron it went to. Folders appear once a tasker is posted, and fill as squadrons submit.':'Important files, logged by unit and division. Add one with “Log a file”.'),vSeg),
+function filesBody(){ const [v,vSeg]=seg('filesv2',[['folders','Folders'],['lib','Library']],'folders');
+  return h('div',{class:'stack'},h('div',{class:'row'},h('span',{class:'small muted',style:'flex:1'},v==='folders'?'A folder for every unit and division you can see. Store files straight into a folder, and every tasker adds a sub-folder that fills as squadrons submit.':'Important files, logged by unit and division. Add one with “Log a file”.'),vSeg),
     v==='lib'?fileLibrary():folderTree(null)); }
 const libItems=()=>[...S.items.values()].filter(x=>x.t==='lib');
 const libScope=x=>(x.sq==='ALL'?'All squadrons':x.sq===GROUP?'Group 2':x.sq)+(x.div&&x.div!=='ALL'?' · '+(x.div==='CC'?'Command':divLabel(x.div)):'');
@@ -1908,21 +1908,44 @@ function refForm(old){ const st=S.edit.rf||(S.edit.rf=old?{...old}:{id:uid(),cat
     h('div',{class:'small muted'},'Bigger than 4 MB? Put it in Teams/SharePoint and paste the link.'),
     h('div',{class:'row'},old?confirmBtn('Delete',async()=>{ await putConfig('refs',{list:refsList().filter(x=>x.id!==old.id)}); S.edit.rf=null; closeDialog(); }):null,h('span',{class:'spacer'}),h('button',{class:'btn',onclick:()=>{ S.edit.rf=null; closeDialog(); }},'Cancel'),h('button',{class:'btn pri',onclick:save},'Save'))); }
 // Unit → Division → Tasker folders. onlyDiv limits it to one division (used on each A-Staff page).
-function folderTree(onlyDiv){ const q=norm(S.sub.fq||''); const dl=onlyDiv?[].concat(onlyDiv):null;
-  const ts=taskers().filter(t=>!dl||dl.includes(t.div));
-  const folders=[]; ts.forEach(t=>targetUnits(t).forEach(u=>{ if(!canSeeItem({sq:u,div:t.div,up:true})) return; if(!(ME().units.includes(u)||isTaskOverseer(t)||isGroupCmd()||ME().gDivs.includes(t.div)||ME().cmdUnits.includes(u))) return;
-    const a=ackOf(t,u)||{}; folders.push({t,u,a,files:filesOf(a)}); }));
-  const hit=f=>!q||norm(`${f.t.title} ${f.u} ${divLabel(f.t.div)} ${f.files.map(x=>x.name).join(' ')} ${f.a.note||''}`).includes(q);
-  const shown=folders.filter(hit); const units=UNITS().filter(u=>shown.some(f=>f.u===u));
+/* Folders: Unit → Division → (files stored straight into the folder, then one sub-folder per tasker). Every folder a
+   person can see is shown, empty or not, so people can store files in it directly. Command-level taskers (Squad Coms,
+   SELs, Chiefs of Staff, all leadership) live in each unit's Command folder. Stored files are items with t:'store'. */
+const FOLDER_CMD=['CC','SEL','COS','ALL'];
+const folderOf=div=>FOLDER_CMD.includes(div)?'CC':div;
+function folderUnits(m=ME()){ if(isGroupCmd(m)||m.gDivs.length) return UNITS(); return UNITS().filter(u=>m.units.includes(u)); }
+function folderDivs(u,m=ME()){ const all=[['CC','Command'],...DIVS()];
+  if(isGroupCmd(m)||m.cmdUnits.includes(u)) return all;
+  return all.filter(([c])=>m.gDivs.includes(c)||m.unitDivs.includes(u+':'+c)); }
+const storedIn=(u,d)=>[...S.items.values()].filter(x=>x.t==='store'&&x.sq===u&&x.div===d).sort((a,b)=>String(b.added||'').localeCompare(String(a.added||'')));
+function storeForm(u,d){ const st=S.edit.sf||(S.edit.sf={title:'',note:'',link:''});
+  const save=async ev=>{ if(!st._newFile&&!st.link) return toast('Pick a file or paste a link.'); ev.currentTarget.disabled=true; const up=u!==GROUP;
+    let file=null; if(st._newFile){ file=await uploadFile(st._newFile,{sq:u,div:d,c:'item',up}); if(!file){ ev.currentTarget.disabled=false; return; } }
+    await putRec('items',{t:'store',sq:u,div:d,up,k:today(),title:(st.title||(file&&file.name)||'Link').trim(),note:st.note,link:st.link,file,who:myName(),added:new Date().toISOString()}); S.edit.sf=null; closeDialog(); toast('Stored in '+u+' › '+(d==='CC'?'Command':divLabel(d))); };
+  return h('div',{class:'stack'},h('h3',null,`Store a file in ${u===GROUP?'Group 2':u} › ${d==='CC'?'Command':divLabel(d)}`),
+    h('div',{class:'fgrid'},h('label',{class:'f wide'},'File: Excel, Word, PDF… (up to 4 MB)',h('input',{type:'file',onchange:e=>{ st._newFile=e.target.files[0]||null; if(st._newFile&&!st.title) st.title=st._newFile.name.replace(/\.[^.]+$/,''); }})),
+      fld(st,'title','Name (optional)',{ph:'Uses the file name if blank'}),fld(st,'link','Or a link (Teams/SharePoint)',{type:'url',ph:'https://'}),fld(st,'note','Note (optional)',{type:'textarea',rows:2,wide:true})),
+    h('div',{class:'row'},h('span',{class:'spacer'}),h('button',{class:'btn',onclick:()=>{ S.edit.sf=null; closeDialog(); }},'Cancel'),h('button',{class:'btn pri',onclick:save},'Store'))); }
+function folderTree(onlyDiv){ const q=norm(S.sub.fq||''); const dl=onlyDiv?[].concat(onlyDiv).map(folderOf):null;
+  const tfold=[]; taskers().forEach(t=>targetUnits(t).forEach(u=>{ if(!canSeeItem({sq:u,div:t.div,up:true})) return; if(!(ME().units.includes(u)||isTaskOverseer(t)||isGroupCmd()||ME().gDivs.includes(t.div)||ME().cmdUnits.includes(u))) return;
+    const a=ackOf(t,u)||{}; tfold.push({t,u,d:folderOf(t.div),a,files:filesOf(a)}); }));
   const [only,oSeg]=seg('fonly',[['all','All folders'],['files','With files']],'all');
-  const vis=shown.filter(f=>only==='all'||f.files.length);
+  const hitT=f=>!q||norm(`${f.t.title} ${f.u} ${divLabel(f.t.div)} ${f.files.map(x=>x.name).join(' ')} ${f.a.note||''}`).includes(q);
+  const hitS=x=>!q||norm(`${x.title} ${x.note||''} ${(x.file&&x.file.name)||''}`).includes(q);
+  const tree=folderUnits().map(u=>({u,divs:folderDivs(u).filter(([c])=>!dl||dl.includes(c)).map(([c,l])=>{ const tf=tfold.filter(f=>f.u===u&&f.d===c&&hitT(f)); const sf=storedIn(u,c).filter(hitS);
+      return {c,l,tf,sf,count:sf.length+tf.reduce((n,f)=>n+f.files.length,0)}; }).filter(x=>(only==='all'&&!q)||x.count||x.tf.some(f=>f.files.length)||(q&&(x.tf.length||x.sf.length)))})).filter(x=>x.divs.length);
+  const mine=u=>ME().units.includes(u);
   return h('div',{class:'stack'},h('div',{class:'row'},oSeg,h('span',{class:'spacer'}),h('input',{type:'text',placeholder:'Search folders and file names…',value:S.sub.fq||'',style:'max-width:260px',onchange:e=>{ S.sub.fq=e.target.value; render(); }})),
-    units.length?units.map(u=>{ const fu=vis.filter(f=>f.u===u); if(!fu.length) return null; const divs=[...new Set(fu.map(f=>f.t.div))];
-      return h('details',{class:'box folder',open:units.length===1||ME().units.includes(u)?true:null},h('summary',null,'📁 ',unitLabel(u),h('span',{class:'small muted',style:'font-weight:400'},`  ${plural(fu.length,'folder')} · ${plural(fu.reduce((n,f)=>n+f.files.length,0),'file')}`)),
-        h('div',{class:'stack',style:'gap:8px;margin-top:8px'},divs.map(d=>h('details',{class:'box sub',open:onlyDiv||divs.length===1?true:null},h('summary',null,h('span',{class:'dot',style:`background:${divColor(d)}`}),' ',divLabel(d)),
-          h('ul',{class:'list'},fu.filter(f=>f.t.div===d).map(f=>h('li',null,stChip(f.a.status,f.t.due&&daysTo(f.t.due)<0),h('div',{class:'grow'},h('button',{class:'linkbtn',onclick:()=>openDialog(()=>taskerCard(S.items.get(f.t.id)||f.t))},'📂 '+f.t.title),
-              h('div',{class:'small muted'},`${ST_LABEL[f.a.status||'']}${f.t.due?' · due '+fmtShort(f.t.due):''}${f.a.who?' · '+f.a.who:''}`),f.a.note?h('div',{class:'small preline'},f.a.note):null),
-            h('div',{class:'row',style:'gap:4px;justify-content:flex-end'},f.files.length?f.files.map(fileChip):h('span',{class:'small muted'},'Empty'),linkChip(f.a.link))))))))); }):emptyState(q?'No folders match.':'No tasker folders yet. They appear as soon as Group posts a tasker.')); }
+    tree.length?tree.map(({u,divs})=>h('details',{class:'box folder',open:tree.length===1||mine(u)||q?true:null},h('summary',null,'📁 ',u===GROUP?'Group 2':unitLabel(u),h('span',{class:'small muted',style:'font-weight:400'},`  ${plural(divs.length,'folder')} · ${plural(divs.reduce((n,x)=>n+x.count,0),'file')}`)),
+      h('div',{class:'stack',style:'gap:8px;margin-top:8px'},divs.map(x=>h('details',{class:'box sub',open:onlyDiv||divs.length===1||q?true:null},h('summary',null,h('span',{class:'dot',style:`background:${divColor(x.c)}`}),' ',x.l,h('span',{class:'small muted',style:'font-weight:400'},`  ${plural(x.count,'file')}`)),
+        h('div',{class:'row',style:'margin:6px 0'},h('span',{class:'spacer'}),canWrite(u,x.c)?h('button',{class:'btn sm pri',onclick:()=>{ S.edit.sf=null; openDialog(()=>storeForm(u,x.c)); }},'⬆ Store a file here'):null),
+        x.sf.length?h('ul',{class:'list'},x.sf.map(f=>h('li',null,h('span',{class:'docicon'},/\.(xlsx?|csv)$/i.test((f.file&&f.file.name)||'')?'📗':f.file?'📄':'🔗'),h('div',{class:'grow'},h('b',null,f.title),f.note?h('div',{class:'small muted'},f.note):null,h('div',{class:'small muted'},`${f.who||'—'}${f.added?' · '+fmtShort(String(f.added).slice(0,10)):''}`)),
+          fileChip(f.file),linkChip(f.link),(f.own===S.uid||canWrite(u,x.c))?confirmBtn('Delete',async()=>{ if(f.file) await deleteFile(f.file); await delRec('items',f.id); }):null))):null,
+        x.tf.length?h('ul',{class:'list'},x.tf.map(f=>h('li',null,stChip(f.a.status,f.t.due&&daysTo(f.t.due)<0),h('div',{class:'grow'},h('button',{class:'linkbtn',onclick:()=>openDialog(()=>taskerCard(S.items.get(f.t.id)||f.t))},'📂 '+f.t.title),
+            h('div',{class:'small muted'},`Tasker · ${ST_LABEL[f.a.status||'']}${f.t.due?' · due '+fmtShort(f.t.due):''}${f.a.who?' · '+f.a.who:''}`),f.a.note?h('div',{class:'small preline'},f.a.note):null),
+          h('div',{class:'row',style:'gap:4px;justify-content:flex-end'},f.files.length?f.files.map(fileChip):h('span',{class:'small muted'},'Empty'),linkChip(f.a.link))))):null,
+        !x.sf.length&&!x.tf.length?h('p',{class:'small muted',style:'margin:4px 0'},'Empty folder.'):null)))))
+    :emptyState(q?'No folders match.':'No folders with files yet.')); }
 // builders: after downloading, pick the tasker to upload it to
 function taskerPicker(pdf){ const l=myOpenTaskers().filter(t=>myAckUnits(t).length).sort((a,b)=>(a.due||'9').localeCompare(b.due||'9'));
   return h('div',{class:'stack'},h('h3',null,'Upload to a tasker'),h('p',{class:'small',style:'margin:0'},h('b',null,pdf.fn),' is in your Downloads.'),
