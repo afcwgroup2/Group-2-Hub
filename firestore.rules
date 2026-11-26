@@ -1,0 +1,170 @@
+rules_version = '2';
+// Cadet Group 2 Hub: paste this whole file into Firebase console → Firestore Database → Rules → Publish.
+//
+// Who sees what is decided by each person's positions, saved on their access record (members/{email}) by a site admin:
+//   cmdUnits  units where they are Commander, Deputy, CoS, SEL, Exec or Staff Supt → everything in that unit
+//   unitDivs  "UNIT:DIV" pairs, e.g. "CS20:A46"                                 → that division in that unit
+//   gDivs     divisions they hold at Group (G2)                                 → that division in every squadron
+//   divs / units  every division / unit they hold anything in
+// Group sees a squadron's taskers and paperwork only when Group sent them or they were sent up (up == true). Squadron calendar entries reach Group only
+// when the squadron ticks "Share with Group" (up == true). Group calendar entries reach every squadron when published (pub == true).
+// No one's email is written in here.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null && request.auth.token.email != null && request.auth.token.email_verified == true; }
+    function em() { return request.auth.token.email.lower(); }
+    function mePath() { return /databases/$(database)/documents/members/$(em()); }
+    function isMember() { return signedIn() && exists(mePath()); }
+    function me() { return get(mePath()).data; }
+    function L(f) { return me().get(f, []); }
+    function isAdmin() { return isMember() && me().get('role', '') == 'admin'; }
+    function groupCmd() { return 'G2' in L('cmdUnits'); }
+    // form cards: the Group chief of the division a card lives under, or Group command staff
+    function canEditForms() { return isAdmin() || (isMember() && (groupCmd() || L('gDivs').size() > 0)); }
+
+    // ---------- visibility (the site's canSeeItem / canSeeCal / canWrite do exactly the same) ----------
+    // Group sees a squadron's taskers and paperwork only when Group sent them or the squadron sent them up (up == true)
+    function seeItem(d) {
+      return isMember() && (
+           ((groupCmd() || d.div in L('gDivs')) && (d.sq == 'ALL' || d.sq == 'G2' || d.up == true))
+        || d.sq in L('cmdUnits')
+        || (d.sq + ':' + d.div) in L('unitDivs')
+        || (d.div == 'ALL' && d.sq in L('units'))
+        || (d.sq == 'ALL' && (d.div == 'ALL' || d.div in L('divs') || L('cmdUnits').size() > 0)));
+    }
+    function seeCal(d) {
+      return isMember() && (
+           d.sq in L('cmdUnits')
+        || (d.sq + ':' + d.div) in L('unitDivs')
+        || (d.div == 'ALL' && d.sq in L('units'))
+        || (d.up == true && (groupCmd() || d.div in L('gDivs')))
+        || d.pub == true);
+    }
+    function canWrite(sq, div) {
+      return isMember() && (
+           groupCmd()
+        || (sq == 'ALL' && div != 'ALL' && div in L('gDivs'))
+        || (sq != 'ALL' && sq in L('cmdUnits'))
+        || (sq != 'ALL' && div != 'ALL' && (sq + ':' + div) in L('unitDivs')));
+    }
+
+    // ---------- record shape: {sq, div, t, up, pub, k, j, by, own, at} ----------
+    function nd() { return request.resource.data; }
+    function wellFormed() {
+      return nd().keys().hasOnly(['sq', 'div', 't', 'up', 'pub', 'k', 'j', 'by', 'own', 'at'])
+        && nd().sq is string && nd().sq.size() <= 12 && nd().div is string && nd().div.size() <= 12
+        && nd().t is string && nd().k is string && nd().k.size() <= 40
+        && nd().up is bool && nd().pub is bool
+        && nd().j is string && nd().j.size() < 950000
+        && nd().by == request.auth.uid;
+    }
+    function iCreate() { return nd().own == request.auth.uid; }
+    // an edit keeps the creator, the kind and the unit; it may move to another division only if the editor can write there
+    function sameHome() {
+      return nd().own == resource.data.own && nd().t == resource.data.t && nd().sq == resource.data.sq
+        && (nd().div == resource.data.div || canWrite(nd().sq, nd().div));
+    }
+    function mineOrWriter() { return resource.data.own == request.auth.uid || canWrite(resource.data.sq, resource.data.div); }
+
+    // ---------- taskers and paperwork ----------
+    match /items/{id} {
+      allow read: if isAdmin() || seeItem(resource.data);
+      // taskers are posted by Group only (Group command staff, or the Group chief of that division); everything else by a writer for that unit
+      allow create: if wellFormed() && iCreate()
+        && (nd().t == 'task' ? (isMember() && (groupCmd() || (nd().div != 'ALL' && nd().div != 'CC' && nd().div in L('gDivs')))) : canWrite(nd().sq, nd().div));
+      // paperwork: anyone who can see the line can move its status (approve, return); taskers: creator or a writer for that unit
+      // once something is sent up to Group it stays visible to Group
+      allow update: if wellFormed() && sameHome() && (resource.data.up == false || nd().up == true)
+        && (resource.data.t == 'paper' ? seeItem(resource.data)
+            : resource.data.t == 'task' ? (resource.data.own == request.auth.uid || groupCmd() || resource.data.div in L('gDivs'))
+            // equipment requests: the squadron, or Group A4/6 approving / checking out / checking in
+            : resource.data.t == 'resv' ? (mineOrWriter() || groupCmd() || 'A3' in L('gDivs'))
+            : mineOrWriter());
+      allow delete: if isAdmin() || (resource.data.t == 'task' ? (resource.data.own == request.auth.uid || groupCmd() || resource.data.div in L('gDivs')) : mineOrWriter());
+    }
+
+    // ---------- each squadron's reply to a tasker ----------
+    match /acks/{id} {
+      allow read: if isAdmin() || seeItem(resource.data);
+      allow create: if wellFormed() && nd().sq != 'ALL' && canWrite(nd().sq, nd().div);
+      // the squadron edits its answer; Group (command staff or that division's Group chief) accepts or returns it
+      allow update: if wellFormed() && nd().sq == resource.data.sq && nd().div == resource.data.div
+        && (canWrite(resource.data.sq, resource.data.div) || resource.data.div in L('gDivs'));
+      allow delete: if isAdmin() || canWrite(resource.data.sq, resource.data.div) || resource.data.div in L('gDivs');
+    }
+
+    // ---------- strategic calendars ----------
+    function calFlagsOK() { return (nd().pub == false || nd().sq == 'G2') && (nd().up == false || nd().sq != 'G2') && nd().sq != 'ALL'; }
+    match /cal/{id} {
+      allow read: if isAdmin() || seeCal(resource.data);
+      allow create: if wellFormed() && iCreate() && calFlagsOK() && canWrite(nd().sq, nd().div);
+      allow update: if wellFormed() && sameHome() && calFlagsOK() && mineOrWriter();
+      allow delete: if isAdmin() || mineOrWriter();
+    }
+
+    // ---------- attachments, stored in pieces (no paid file storage) ----------
+    function seeFile(d) { return d.c == 'lib' ? isMember() : (d.c == 'cal' ? seeCal(d) : seeItem(d)); }
+    function fileOK(extra) {
+      return isMember() && nd().own == request.auth.uid && nd().by == request.auth.uid
+        && nd().keys().hasOnly(['sq', 'div', 'c', 'up', 'pub', 'by', 'own', 'at', extra])
+        && nd().c in ['item', 'cal', 'lib'] && nd().up is bool && nd().pub is bool
+        && (nd().c == 'lib' ? canEditForms() : (canWrite(nd().sq, nd().div) || (nd().c == 'item' && nd().div in L('gDivs'))));
+    }
+    match /files/{id} {
+      allow read: if isAdmin() || seeFile(resource.data);
+      allow create: if fileOK('j') && nd().j is string && nd().j.size() < 2000;
+      allow delete: if isAdmin() || resource.data.own == request.auth.uid;
+    }
+    match /fileparts/{id} {
+      allow read: if isAdmin() || seeFile(resource.data);
+      allow create: if fileOK('d') && nd().d is string && nd().d.size() < 950000;
+      allow delete: if isAdmin() || resource.data.own == request.auth.uid;
+    }
+
+    // ---------- settings, forms library, directory ----------
+    match /config/{name} {
+      allow read: if isMember();
+      allow write: if isAdmin() || (name == 'forms' && canEditForms())
+        // reference files in Filed Documents: Group command staff
+        || (name == 'refs' && isMember() && groupCmd())
+        // Misc → Helpful files: anyone on Group staff
+        || (name == 'misc' && isMember() && 'G2' in L('units'))
+        // the storage room inventory and its booking list (A3): Group A3 or Group command staff
+        || (name == 'inventory' && isMember() && (groupCmd() || 'A3' in L('gDivs')))
+        // the A3 training plan (objectives and timeline): Group A3 chiefs or Group command staff
+        || (name == 'a3plan' && isMember() && (groupCmd() || 'A3' in L('gDivs')))
+        // A-Staff and Command Staff (div_CMD) libraries: the Group chief of that division, or Group command staff
+        || (name.matches('div_[A-Za-z0-9]+') && isMember() && (groupCmd() || name.split('_')[1] in L('gDivs')));
+    }
+    // Admin → Site health writes here to prove the live rules match the website version. Change the version string
+    // together with SITE_VERSION in index.html.
+    match /health/{u} {
+      allow read: if isMember() && request.auth.uid == u;
+      allow write: if isMember() && request.auth.uid == u && request.resource.data.keys().hasOnly(['v', 'at']) && request.resource.data.v == '2026.11.26';
+    }
+    match /directory/{d} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    // ---------- the access list: only site admins change it ----------
+    match /members/{e} {
+      allow read: if isAdmin() || (signedIn() && e == em());
+      allow write: if isAdmin();
+    }
+    match /requests/{e} {
+      allow read, delete: if isAdmin() || (signedIn() && e == em());
+      allow create, update: if signedIn() && e == em() && request.resource.data.keys().hasOnly(['email', 'name', 'note', 'uid', 'created'])
+        && request.resource.data.name is string && request.resource.data.name.size() < 100;
+    }
+
+    // ---------- restoring a backup: a site admin can put back any record ----------
+    match /{c}/{d} {
+      allow write: if isAdmin() && c in ['items', 'cal', 'acks', 'config', 'directory', 'members'];
+    }
+
+    // anything not listed above is closed
+    match /{path=**} { allow read, write: if false; }
+  }
+}
