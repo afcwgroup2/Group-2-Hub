@@ -41,7 +41,7 @@ Admin → **New term** walks through these steps with buttons, and has **Remove 
   - **Chiefs of Staff**: Group Commander, Deputy, Exec, Chief of Staff and Staff Superintendent.
   - **First Sergeants** (tasker tracker plus the weekly wrap-up of AF 341s, AF 174s and Form 10s by class): Group Commander, Deputy, Exec and the Group First Sergeant.
   - **A1, A2, A3, A4/6, Stan/Eval** (tasker tracker, the division's tools and its Library): Group Commander, Deputy, Exec, Chief of Staff and Staff Superintendent see all; a Group division chief sees their own.
-- **Filed Documents** (everyone): Group command staff see every squadron and division; a Group division chief sees every squadron's folders for their division; squadron command staff see their whole squadron; a squadron division chief sees only their division in their squadron. (The CSD, OPORD, training MFRs and blank forms are in Misc → Helpful files.)
+- **Files** (everyone): **Tasker folders** (Unit → Division → Tasker, filled as squadrons submit) and a **Library**: important files logged under a unit and a division. Squadron command staff see their squadron; a division chief sees their division (in their squadron, or every squadron at Group); Group command staff see everything. Anyone who can write for a unit and division can log a file there.
 - **Strategic Calendar.**
 - **Paperwork builder:** MFR, AF 1206, Form 10, AF 174, **Feedback: AFCW 724** (initial and mid-term; fills the real form, nothing typed leaves the browser) and **Feedback: AFCW 715A / 715B** (final feedback and the optional External Cadet Performance Brief; blank Adobe forms with how to use them).
 - **Misc:** **Helpful files** (the CSD, ROEs, USAFAI 36-2401, OPORD 26-007, the CG2 training guidance, the 34 TRSS and Executive CONOP templates, blank 724/715A/715B/Form 10, and anything else; anyone can open them; anyone on Group staff can add, edit or remove one) and the **Directory** (from the UMD).
@@ -50,7 +50,7 @@ Admin → **New term** walks through these steps with buttons, and has **Remove 
 Each squadron First Sergeant (or squadron command staff) opens My Board → First Sergeant → Weekly wrap-up once a week and enters how many AF 341s, AF 174s and Form 10s were written for each class. Numbers only: no names, no reasons. The squadron sees its own history; the Group First Sergeant and Group command staff see every squadron on Duty → First Sergeants.
 
 ## How taskers and files work
-Group posts a tasker. Each squadron it went to gets a folder for it (Unit → Division → Tasker; Filed Documents tab). The squadron uploads its
+Group posts a tasker. Each squadron it went to gets a folder for it (Unit → Division → Tasker; Files tab). The squadron uploads its
 files there, adds any information, and clicks **Submit tasker**. If something needs signatures, they download it, sign it in Adobe and upload
 the signed copy. Group accepts each submission or returns it with a note; returned ones go back to the squadron to fix and resubmit.
 A squadron never sees another squadron's folders.
