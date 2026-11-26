@@ -16,7 +16,7 @@ Admin → **New term** walks through these steps with buttons, and has **Remove 
 3. Make sure there are at least two site admins, from two classes.
 4. **Admin → Site settings:** update the semester label and the Group CC indorsement signature block.
 5. Close or delete last semester's taskers; delete old calendar entries and approved paperwork you no longer need (keeps the free plan fast).
-6. Each Group division chief: check their staff's Library (A-Staff → their division → Library) is still accurate. Group A3: update the Guidance and calendar for the new semester (and the Silver Training Weekend dates, see MAINTAINING.md), re-count the storage room and update the inventory, and upload the signed guidance and the Jack's Valley map in the A3 Library. Group staff: refresh Misc → Helpful files (new OPORD, CSD, ROEs, guidance).
+6. Each Group division chief: check their staff's Library (Duty → their division → Library) is still accurate. Group A3: update the Guidance and calendar for the new semester (and the Silver Training Weekend dates, see MAINTAINING.md), re-count the storage room and update the inventory, and upload the signed guidance and the Jack's Valley map in the A3 Library. Group staff: refresh Misc → Helpful files (new OPORD, CSD, ROEs, guidance).
 7. Outside the site: add new admins as Firebase **Owners** and GitHub org **Owners**; remove graduates.
 
 ## Who sees what (positions decide it, and the database enforces it)
@@ -36,15 +36,18 @@ Admin → **New term** walks through these steps with buttons, and has **Remove 
   - Group Chief of Staff and Staff Superintendent: every A-Staff division.
   - Group First Sergeant: First Sergeants.
   Tasking Group staff (New tasker → Group staff): the Group Commander, Deputy and Chief of Staff can task any Group command staff member, the Group First Sergeant and every Group division chief; the Staff Superintendent can task every Group division chief. When a Group division has two chiefs (A3: Training and MAE), pick who takes lead or leave it to either. A Group-staff tasker shows only on the named person's My Board.
-- **Command Staff** (Group Commander, Deputy, Exec and First Sergeant): the First Sergeant weekly wrap-up, plus where Group keeps the **Command library** (Group CC/Deputy/Exec) and the **First Sergeant library** (Group First Sergeant).
+- **Duty** (Group staff only): one page per squadron job Group oversees and per A-Staff division. Each page has its tasker tracker (Group posts, squadrons answer) and that staff's tools:
+  - **Squad Coms**: Group Commander, Deputy, Exec and the Group SEL.
+  - **Chiefs of Staff**: Group Commander, Deputy, Exec, Chief of Staff and Staff Superintendent.
+  - **First Sergeants** (tasker tracker plus the weekly wrap-up of AF 341s, AF 174s and Form 10s by class): Group Commander, Deputy, Exec and the Group First Sergeant.
+  - **A1, A2, A3, A4/6, Stan/Eval** (tasker tracker, the division's tools and its Library): Group Commander, Deputy, Exec, Chief of Staff and Staff Superintendent see all; a Group division chief sees their own.
 - **Filed Documents** (everyone): Group command staff see every squadron and division; a Group division chief sees every squadron's folders for their division; squadron command staff see their whole squadron; a squadron division chief sees only their division in their squadron. (The CSD, OPORD, training MFRs and blank forms are in Misc → Helpful files.)
-- **A-Staff** (Group CC, Deputy, Exec, CoS and Staff Supt see every division; a Group division chief sees theirs; the Group SEL and First Sergeant don't use it): the division's tasker tracker, the Group side of its tools and its folders. A4/6 also has **How each fund works**: quick reference, each fund (O&M, Supt's gift funds, squadron gift/AOG, CUL, SM&W, unofficial fund) and the Group directives; Group staff also see the items still to confirm.
 - **Strategic Calendar.**
 - **Paperwork builder:** MFR, AF 1206, Form 10, AF 174, **Feedback: AFCW 724** (initial and mid-term; fills the real form, nothing typed leaves the browser) and **Feedback: AFCW 715A / 715B** (final feedback and the optional External Cadet Performance Brief; blank Adobe forms with how to use them).
 - **Misc:** **Helpful files** (the CSD, ROEs, USAFAI 36-2401, OPORD 26-007, the CG2 training guidance, the 34 TRSS and Executive CONOP templates, blank 724/715A/715B/Form 10, and anything else; anyone can open them; anyone on Group staff can add, edit or remove one) and the **Directory** (from the UMD).
 
 ## First Sergeant weekly wrap-up
-Each squadron First Sergeant (or squadron command staff) opens My Board → First Sergeant → Weekly wrap-up once a week and enters how many AF 341s, AF 174s and Form 10s were written for each class. Numbers only: no names, no reasons. The squadron sees its own history; the Group First Sergeant and Group command staff see every squadron on Command Staff → First Sergeants.
+Each squadron First Sergeant (or squadron command staff) opens My Board → First Sergeant → Weekly wrap-up once a week and enters how many AF 341s, AF 174s and Form 10s were written for each class. Numbers only: no names, no reasons. The squadron sees its own history; the Group First Sergeant and Group command staff see every squadron on Duty → First Sergeants.
 
 ## How taskers and files work
 Group posts a tasker. Each squadron it went to gets a folder for it (Unit → Division → Tasker; Filed Documents tab). The squadron uploads its
@@ -68,16 +71,12 @@ account over at turnover too.
 
 ## Files that live only inside the site (never on GitHub)
 The GitHub repo is public. Upload these inside the site, behind sign-in, and never commit them:
-- The **signed** CG2 Military Training Guidance (digital signatures carry DoD ID numbers): A-Staff → A3 → Library.
-- The **Jack's Valley Training Areas map** (marked FOUO): A-Staff → A3 → Library.
+- The **signed** CG2 Military Training Guidance (digital signatures carry DoD ID numbers): Duty → A3 → Library.
+- The **Jack's Valley Training Areas map** (marked FOUO): Duty → A3 → Library.
 - Any completed 724 / 715A / 715B (personal information). The repo only holds blank forms.
 
 ## Note on "who sees what" for Group command staff
 The Taskers and A-Staff tabs show each Group job only its own audiences (above). The database itself still lets any Group command staff member read Group-level records, so treat those tab limits as focus, not security. Squadron-to-squadron privacy is enforced by the database.
 
 ## Libraries
-Every staff has a Library that its squadron people see in their workspace on My Board. The person in charge edits it:
-- A-Staff divisions: the Group division chief (A-Staff → division → Library).
-- Command library (squadron command staff): Group CC, Deputy or Exec (Command Staff → Command library).
-- First Sergeant library: the Group First Sergeant (Command Staff → First Sergeant library).
-Uploads up to 4 MB (Excel, Word, PDF…); bigger files go in Teams/SharePoint as a link.
+Each A-Staff division has a Library (information page and files) that its squadron division chiefs see in their workspace on My Board. The Group division chief edits it on Duty → their division → Library. Uploads up to 4 MB (Excel, Word, PDF…); bigger files go in Teams/SharePoint as a link.

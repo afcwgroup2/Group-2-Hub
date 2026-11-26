@@ -294,7 +294,7 @@ const cfg=()=>Object.assign({},CFG_DEFAULT,(S.cfg||{}));
 const UNITS=()=>cfg().units&&cfg().units.length?cfg().units:DEFAULT_UNITS;
 const SQS=()=>UNITS().filter(u=>u!==GROUP);
 const DIVS=()=>cfg().divs&&cfg().divs.length?cfg().divs:DEFAULT_DIVS;
-const divLabel=c=>/^P/.test(c)&&CMD.find(x=>x[0]===c.slice(1))?'Group '+CMD.find(x=>x[0]===c.slice(1))[1]:c==='ALL'?'All divisions':c==='CC'?'Squad Coms':c==='SEL'?'SELs':c==='CMD'?'Command staff':(DIVS().find(d=>d[0]===c)||[c,c])[1];
+const divLabel=c=>/^P/.test(c)&&CMD.find(x=>x[0]===c.slice(1))?'Group '+CMD.find(x=>x[0]===c.slice(1))[1]:c==='ALL'?'All divisions':c==='CC'?'Squad Coms':c==='COS'?'Chiefs of Staff':c==='SEL'?'SELs':c==='CMD'?'Command staff':(DIVS().find(d=>d[0]===c)||[c,c])[1];
 const unitLabel=u=>u===GROUP?'Group 2':u==='ALL'?'All squadrons':u;
 function postLabel(p){ const [u,c]=String(p).split(':'); const cmd=CMD.find(x=>x[0]===c);
   const who=u===GROUP?'Group':u; if(cmd) return `${who} ${cmd[1]}`; if(c==='FS') return `${who} First Sergeant`; return `${who} ${divLabel(c)} Division Chief`; }
@@ -331,11 +331,11 @@ function canWrite(sq,div,m=ME()){ if(isGroupCmd(m)) return true;
 const gCodes=(m=ME())=>m.posts.filter(p=>p.startsWith(GROUP+':')).map(p=>p.split(':')[1]);
 const staffDivs=()=>DIVS().map(d=>d[0]).filter(c=>c!=='FS');
 function taskAudiences(m=ME()){ const c=gCodes(m), A=new Set(), st=staffDivs();
-  if(c.some(x=>['CC','CD','EX'].includes(x))) ['CC','SEL','FS',...st].forEach(x=>A.add(x));
+  if(c.some(x=>['CC','CD','EX'].includes(x))) ['CC','SEL','COS','FS',...st].forEach(x=>A.add(x));
   if(c.includes('SEL')) ['CC','SEL'].forEach(x=>A.add(x));
-  if(c.some(x=>['CoS','SUPT'].includes(x))) st.forEach(x=>A.add(x));
+  if(c.some(x=>['CoS','SUPT'].includes(x))) ['COS',...st].forEach(x=>A.add(x));
   c.filter(x=>x==='FS'||st.includes(x)).forEach(x=>A.add(x));
-  return ['CC','SEL','FS',...st].filter(x=>A.has(x)); }
+  return ['CC','SEL','COS','FS',...st].filter(x=>A.has(x)); }
 /* Group staff a person can task (sq = G2). Division chiefs and the Group First Sergeant use their division code; Group
    command positions use "P"+code (PCC, PCD, PCoS, PSEL, PEX, PSUPT).
    Group CC, Deputy, CoS: Group command staff, the Group First Sergeant and every Group division chief.
@@ -344,7 +344,7 @@ function groupTargets(m=ME()){ const c=gCodes(m), A=[], st=staffDivs();
   if(c.some(x=>['CC','CD','CoS'].includes(x))) A.push(...CMD.map(x=>'P'+x[0]),'FS');
   if(c.some(x=>['CC','CD','CoS','SUPT'].includes(x))) A.push(...st);
   return [...new Set(A)]; }
-const audLabel=c=>({CC:'Squad Coms',SEL:'SELs',FS:'First Sergeants'})[c]||divLabel(c);
+const audLabel=c=>({CC:'Squad Coms',SEL:'SELs',COS:'Chiefs of Staff',FS:'First Sergeants'})[c]||divLabel(c);
 const groupLabel=c=>c==='FS'?'Group First Sergeant':/^P/.test(c)?divLabel(c):`Group ${divLabel(c)} chief`;
 const seesAllAStaff=(m=ME())=>gCodes(m).some(x=>['CC','CD','EX','CoS','SUPT'].includes(x));
 // Group people holding a post (for picking a lead when a Group division has two chiefs)
@@ -497,16 +497,16 @@ document.addEventListener('focusout',()=>setTimeout(()=>{ if(!S.pending) return;
 </script>
 <script>
 /* ================= TABS + RENDER ================= */
-const TABS=[['home','My Board'],['tasks','Taskers'],['cmd','Command Staff'],['astaff','A-Staff'],['cal','Strategic Calendar'],['files','Filed Documents'],['paper','Paperwork builder'],['misc','Misc'],['admin','Admin 🔑']];
+const TABS=[['home','My Board'],['tasks','Taskers'],['astaff','Duty'],['cal','Strategic Calendar'],['files','Filed Documents'],['paper','Paperwork builder'],['misc','Misc'],['admin','Admin 🔑']];
 const VIEWS={};
 function go(t,sub){ S.tab=t; if(sub) Object.assign(S.sub,sub); try{ history.replaceState(null,'','#'+t); }catch(e){} render(); window.scrollTo({top:0}); }
 function seg(key,opts,def,onSet){ const cur=S.sub[key]||def; return [cur,h('div',{class:'seg',role:'group'},opts.map(([k,l])=>h('button',{type:'button','aria-pressed':String(cur===k),onclick:()=>{ S.sub[key]=k; ls('sub',S.sub); if(onSet) onSet(k); render(); }},l)))]; }
 function head(title,lede,...right){ return h('div',{class:'row',style:'align-items:flex-end;margin-bottom:14px'},h('div',{style:'flex:1;min-width:240px'},h('h2',{class:'pg'},title),lede?h('p',{class:'lede',style:'margin:0'},lede):null),...right); }
 const emptyState=m=>h('div',{class:'empty'},m);
-const visibleTabs=()=>TABS.filter(([k])=>(k!=='admin'||S.isAdmin)&&(k!=='cmd'||cmdTabVisible())&&(k!=='astaff'||divTabs().length>0)&&(k!=='tasks'||taskersTabVisible()));
+const visibleTabs=()=>TABS.filter(([k])=>(k!=='admin'||S.isAdmin)&&(k!=='astaff'||dutyTabs().length>0)&&(k!=='tasks'||taskersTabVisible()));
 function renderTabs(){
   if(S.signedIn&&!visibleTabs().some(([k])=>k===S.tab)) S.tab='home';
-  const tabs=TABS.filter(([k])=>(k!=='admin'||S.isAdmin)&&(k!=='cmd'||cmdTabVisible())&&(k!=='astaff'||divTabs().length>0)&&(k!=='tasks'||taskersTabVisible()));
+  const tabs=TABS.filter(([k])=>(k!=='admin'||S.isAdmin)&&(k!=='astaff'||dutyTabs().length>0)&&(k!=='tasks'||taskersTabVisible()));
   const waiting=reviewQueue().length, openT=myOpenTaskers(); const openCmd=openT.filter(t=>['CC','ALL','SEL','FS'].includes(t.div)).length, open=openT.filter(t=>staffDivs().includes(t.div)).length;
   $('#tabs').replaceChildren(...(S.signedIn?tabs:[]).map(([k,l])=>h('button',{type:'button','aria-current':S.tab===k?'page':null,onclick:()=>go(k)},l,
     k==='astaff'&&open?h('span',{class:'badge'},open):null, k==='home'&&!isGroupStaff()&&openT.length?h('span',{class:'badge'},openT.length):null, k==='tasks'&&waiting?h('span',{class:'badge'},waiting):null, k==='files'&&waiting?h('span',{class:'badge'},waiting):null)));
@@ -1450,7 +1450,7 @@ function adminHealth(){ const st=S.edit.health||(S.edit.health={});
 // A-Staff is for Group staff only: Group command staff see every division, a Group division chief sees theirs. First Sergeants live under Command Staff.
 const divTabs=(m=ME())=>(seesAllAStaff(m)?DIVS():DIVS().filter(([c])=>m.gDivs.includes(c))).filter(([c])=>c!=='FS');
 const DIV_COLORS={A1:'#7A5AF8',A2:'#2F5FA8',A3:'#17975F',A46:'#C77C02',SE:'#B4486B',FS:'#C0392B'};
-const divColor=c=>DIV_COLORS[c]||'#1497A3';
+const divColor=c=>({CC:'#14385C',COS:'#0E6E78',FS:'#C0392B',SEL:'#5B4B8A'})[c]||DIV_COLORS[c]||'#1497A3';
 function goTaskers(){ if(!isGroupStaff()){ S.sub.lane=sqLanes()[0]?laneKey(sqLanes()[0]):'over'; return go('home'); } if(taskersTabVisible()) return go('tasks'); const d=divTabs(); if(d.length) go('astaff'); else go('home'); }
 const canEditDiv=c=>S.isAdmin||isGroupCmd()||ME().gDivs.includes(c);
 const DIV_INFO_DEFAULT={
@@ -1517,7 +1517,7 @@ function divInfoPanel(c,title){ const info=divInfo(c); const ed=S.edit['di_'+c];
         h('div',{class:'row'},h('span',{class:'spacer'}),h('button',{class:'btn',onclick:()=>{ S.edit['di_'+c]=null; render(); }},'Cancel'),h('button',{class:'btn pri',onclick:async()=>{ await saveDivInfo(c,{text:ed.text}); S.edit['di_'+c]=null; render(); }},'Save')))
       :h('div',null,!(S.divinfo&&S.divinfo[c])?h('div',{class:'chip sun',style:'margin-top:6px'},'Starter text: replace with Group 2’s real dates and rules'):null,richText(info.text)),
     info.updated&&!ed?h('div',{class:'small muted',style:'margin-top:8px'},`Updated ${fmtShort(localDay(info.updated))}${info.by?' by '+info.by:''}`):null); }
-function rosterStrip(c){ const ppl=S.dir.people||[]; const who=u=>ppl.filter(p=>(p.posts||[]).includes(u+':'+c)).map(p=>p.name).join(', ');
+function rosterStrip(c){ const ppl=S.dir.people||[]; const pc=c==='COS'?'CoS':c; const who=u=>ppl.filter(p=>(p.posts||[]).includes(u+':'+pc)).map(p=>p.name).join(', ');
   return h('div',{class:'roster'},UNITS().map(u=>{ const n=who(u); return h('div',{class:'rs'+(n?'':' vac')},h('b',null,u===GROUP?'Group':u),h('span',null,n||'Vacant')); })); }
 // grid of every Group tasker × CS11–CS20 for people who oversee more than one squadron
 function trackerGrid(list){ const open=list.filter(t=>!t.closed&&t.sq==='ALL'&&isTaskOverseer(t)).sort((a,b)=>(a.due||'9').localeCompare(b.due||'9')); if(!open.length) return null;
@@ -1550,19 +1550,26 @@ function divTool(c){
   if(c==='A46') return divInfoPanel('A46','Funds and filing');
   return divInfoPanel(c);
 }
+/* ================= DUTY =================
+   One tab for Group staff: a page for each squadron job Group oversees (Squad Coms, Chiefs of Staff, First Sergeants)
+   and each A-Staff division. What you see follows your Group job (taskAudiences / divTabs in core). */
+const DUTY_CMD=[['CC','Squad Coms'],['COS','Chiefs of Staff'],['FS','First Sergeants']];
+const dutyTabs=()=>[...DUTY_CMD.filter(([c])=>taskAudiences().includes(c)),...divTabs()];
 VIEWS.astaff=function(){
-  const tabs=divTabs(); if(!tabs.length) return emptyState('A-Staff pages open for division chiefs and command staff.');
+  const tabs=dutyTabs(); if(!tabs.length) return emptyState('The Duty tab is for Group staff.');
   let c=S.sub.div; if(!tabs.some(d=>d[0]===c)) c=tabs[0][0];
-  const tools={A1:[['tool','Awards']],A3:[['guide','Guidance'],['mastery','Priorities & mastery'],['sched','Schedule'],['stp','Semester plan'],['swe','Silver Weekend CONOP'],['aar','AARs'],['store','Storage room']],A46:[['funds','How each fund works'],['A46build','Funds request builder']]};
-  const [v,vSeg]=seg('divv_'+c,[['tasks','Tasker tracker'],...(tools[c]||[]),['lib','Library']],'tasks');
-  const openN=taskers().filter(t=>t.div===c&&!taskerDoneForMe(t)).length;
+  const isCmd=DUTY_CMD.some(x=>x[0]===c);
+  const tools={FS:[['fsw','Weekly wrap-up']],A1:[['tool','Awards']],A3:[['guide','Guidance'],['mastery','Priorities & mastery'],['sched','Schedule'],['stp','Semester plan'],['swe','Silver Weekend CONOP'],['aar','AARs'],['store','Storage room']],A46:[['funds','How each fund works'],['A46build','Funds request builder']]};
+  const [v,vSeg]=seg('divv_'+c,[['tasks','Tasker tracker'],...(tools[c]||[]),...(isCmd?[]:[['lib','Library']])],'tasks');
+  const tlist=taskers().filter(t=>c==='CC'?(t.div==='CC'||t.div==='ALL')&&t.sq!==GROUP:t.div===c&&(!isCmd||t.sq!==GROUP));
+  const openN=tlist.filter(t=>!taskerDoneForMe(t)).length;
   return h('div',{class:'stack'},
     h('div',{class:'divtabs',role:'tablist'},tabs.map(([k,l])=>{ const n=taskers().filter(t=>t.div===k&&!taskerDoneForMe(t)&&myAckUnits(t).length).length;
       return h('button',{type:'button',role:'tab','aria-selected':String(k===c),style:`--dc:${divColor(k)}`,onclick:()=>{ S.sub.div=k; ls('sub',S.sub); render(); }},l,n?h('span',{class:'badge'},n):null); })),
-    h('div',{class:'divhero',style:`--dc:${divColor(c)}`},h('div',{class:'row',style:'align-items:flex-end'},h('div',{style:'flex:1;min-width:220px'},h('div',{class:'eyebrow'},'A-Staff'),h('h2',{class:'pg',style:'margin:0'},divLabel(c)),
+    h('div',{class:'divhero',style:`--dc:${divColor(c)}`},h('div',{class:'row',style:'align-items:flex-end'},h('div',{style:'flex:1;min-width:220px'},h('div',{class:'eyebrow'},isCmd?'Duty · squadron command':'Duty · A-Staff'),h('h2',{class:'pg',style:'margin:0'},isCmd?audLabel(c):divLabel(c)),
         h('div',{class:'small',style:'opacity:.85'},`${plural(openN,'open tasker')} · ${plural(ackList().filter(a=>a.div===c&&a.status==='Done').length,'submission')} to review`)),vSeg),
       rosterStrip(c)),
-    v==='lib'?divLibrary(c,c==='A46'?'Funds and filing':null):v==='funds'?fundGuide():v==='A46build'?divTool('A46build'):c==='A3'&&a3Tool(v)?a3Tool(v):v==='tool'?divTool(c):v==='tasks'?taskerSection(taskers().filter(t=>t.div===c),{div:c},`No open ${divLabel(c)} taskers.`):v==='papers'?h('div',{class:'stack'},writeUnits().some(u=>u!=='ALL'&&canWrite(u,c))?h('div',{class:'row'},h('span',{class:'spacer'}),h('button',{class:'btn pri',onclick:()=>{ S.edit.pp=null; openDialog(()=>paperForm(null,{div:c,kind:(PAPER_KINDS.find(k=>k[1]===c)||['Other'])[0]})); }},'+ Submit a document')):null,paperList(papers().filter(p=>p.div===c))):divInfoPanel(c));
+    v==='fsw'?fswGroup():v==='lib'?divLibrary(c,c==='A46'?'Funds and filing':null):v==='funds'?fundGuide():v==='A46build'?divTool('A46build'):c==='A3'&&a3Tool(v)?a3Tool(v):v==='tool'?divTool(c):v==='tasks'?taskerSection(tlist,{div:c},`No open ${isCmd?audLabel(c):divLabel(c)} taskers.`):v==='papers'?h('div',{class:'stack'},writeUnits().some(u=>u!=='ALL'&&canWrite(u,c))?h('div',{class:'row'},h('span',{class:'spacer'}),h('button',{class:'btn pri',onclick:()=>{ S.edit.pp=null; openDialog(()=>paperForm(null,{div:c,kind:(PAPER_KINDS.find(k=>k[1]===c)||['Other'])[0]})); }},'+ Submit a document')):null,paperList(papers().filter(p=>p.div===c))):divInfoPanel(c));
 };
 
 /* ================= SQUADRON COMMANDER =================
@@ -2067,12 +2074,12 @@ function sqLanes(m=ME()){ const out=[];
 const laneKey=l=>l.u+'_'+l.c;
 const laneLabel=l=>l.c==='CMD'?'Command':divLabel(l.c);
 const LANE_TOOLS={
-  CMD:[['tasks','Taskers'],['lib','Library']],
-  FS:[['tasks','Taskers'],['fsw','Weekly wrap-up'],['lib','Library']],
+  CMD:[['tasks','Taskers']],
+  FS:[['tasks','Taskers'],['fsw','Weekly wrap-up']],
   A1:[['tasks','Taskers'],['tool','Awards'],['lib','Library']],
   A3:[['tasks','Taskers'],['guide','Guidance'],['mastery','Priorities & mastery'],['sched','Schedule'],['stp','Semester plan'],['swe','Silver Weekend CONOP'],['aar','AARs'],['store','Storage room'],['lib','Library']],
   A46:[['tasks','Taskers'],['funds','How each fund works'],['A46build','Funds request builder'],['lib','Library']]};
-const laneDivs=c=>c==='CMD'?['CC','SEL','ALL']:[c];
+const laneDivs=c=>c==='CMD'?['CC','SEL','COS','ALL']:[c];
 const laneTaskers=l=>taskers().filter(t=>laneDivs(l.c).includes(t.div)&&(t.sq===l.u||t.sq==='ALL'));
 function laneView(l){ const k=laneKey(l); const tools=LANE_TOOLS[l.c]||[['tasks','Taskers'],['lib','Library']];
   const [v,vSeg]=seg('lanev_'+k,tools,'tasks');

@@ -5,10 +5,10 @@
 |---|---|
 | Who can sign in and their positions | Admin 🔑 → Load the UMD (whole roster) or People & positions (one person, site admins) |
 | Semester label, division names, squadron list, Group CC indorsement block | Admin 🔑 → Site settings |
-| Staff libraries (information page and files) | A-Staff → division → Library (Group division chief); Command Staff → Command / First Sergeant library |
+| Division libraries (information page and files) | Duty → division → Library (Group division chief) |
 | CSD, OPORD, training MFRs, blank forms, other helpful files | Misc → Helpful files (anyone on Group staff) |
-| Storage room inventory and photos | A-Staff → A3 → Storage room → Edit inventory (Group A3) |
-| A3 guidance, priorities and calendar | A-Staff → A3 → Guidance → Edit (Group A3) |
+| Storage room inventory and photos | Duty → A3 → Storage room → Edit inventory (Group A3) |
+| A3 guidance, priorities and calendar | Duty → A3 → Guidance → Edit (Group A3) |
 | Misc → Helpful files | Anyone on Group staff, in the site |
 | Silver Training Weekend dates and deadlines (A3 Guidance table, SWE CONOP builder) | `index.html`: search for `const STW=` and change the four dates per weekend (one line each) |
 | Taskers, calendar entries, paperwork lines | Their own tabs |
