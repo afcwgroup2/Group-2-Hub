@@ -1,7 +1,8 @@
 rules_version = '2';
 // Cadet Group 2 Hub: paste this whole file into Firebase console → Firestore Database → Rules → Publish.
 //
-// Who sees what is decided by each person's positions, saved on their access record (members/{email}) by a site admin:
+// Who sees what is decided by each person's positions, saved on their access record (members/{email}): copied from the UMD roster when
+// they claim their job at sign-in, or set by a site admin:
 //   cmdUnits  units where they are Commander, Deputy, CoS, SEL, Exec or Staff Supt → everything in that unit
 //   unitDivs  "UNIT:DIV" pairs, e.g. "CS20:A46"                                 → that division in that unit
 //   gDivs     divisions they hold at Group (G2)                                 → that division in every squadron
@@ -141,7 +142,7 @@ service cloud.firestore {
     // together with SITE_VERSION in index.html.
     match /health/{u} {
       allow read: if isMember() && request.auth.uid == u;
-      allow write: if isMember() && request.auth.uid == u && request.resource.data.keys().hasOnly(['v', 'at']) && request.resource.data.v == '2026.11.26';
+      allow write: if isMember() && request.auth.uid == u && request.resource.data.keys().hasOnly(['v', 'at']) && request.resource.data.v == '2026.11.27';
     }
     match /directory/{d} {
       allow read: if isMember();
@@ -149,19 +150,42 @@ service cloud.firestore {
     }
 
     // ---------- the access list: only site admins change it ----------
+    // ---------- getting access: sign in with Google, type your name, pick your job ----------
+    // Admins load the UMD into roster/{post__first-last} (one record per job holder, with that job's access fields).
+    // A person who types the same name and job opens exactly that record (no one can list the roster), copies its access
+    // fields onto their own members record and marks the record claimed by their Google email, in one batch.
+    // A claimed record can't be claimed again; an admin frees it by removing the person.
+    function rosterPath(slot) { return /databases/$(database)/documents/roster/$(slot); }
+    function selfClaim() {
+      let d = request.resource.data;
+      let r = get(rosterPath(d.slot)).data;
+      return d.keys().hasOnly(['name', 'role', 'posts', 'cmdUnits', 'unitDivs', 'divs', 'units', 'gDivs', 'slot', 'claimedAt'])
+        && d.role == 'member' && d.name == r.name && d.posts == r.posts && d.cmdUnits == r.cmdUnits && d.unitDivs == r.unitDivs
+        && d.divs == r.divs && d.units == r.units && d.gDivs == r.gDivs
+        && r.claimedBy == '' && getAfter(rosterPath(d.slot)).data.claimedBy == em();
+    }
     match /members/{e} {
       allow read: if isAdmin() || (signedIn() && e == em());
-      allow write: if isAdmin();
+      allow create: if isAdmin() || (signedIn() && e == em() && selfClaim());
+      allow update, delete: if isAdmin();
+    }
+    match /roster/{slot} {
+      allow get: if signedIn();
+      allow list, create, delete: if isAdmin();
+      allow update: if isAdmin() || (signedIn() && resource.data.claimedBy == ''
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy', 'claimedAt'])
+        && request.resource.data.claimedBy == em()
+        && existsAfter(/databases/$(database)/documents/members/$(em())));
     }
     match /requests/{e} {
       allow read, delete: if isAdmin() || (signedIn() && e == em());
-      allow create, update: if signedIn() && e == em() && request.resource.data.keys().hasOnly(['email', 'name', 'note', 'uid', 'created'])
+      allow create, update: if signedIn() && e == em() && request.resource.data.keys().hasOnly(['email', 'name', 'note', 'uid', 'created', 'post'])
         && request.resource.data.name is string && request.resource.data.name.size() < 100;
     }
 
     // ---------- restoring a backup: a site admin can put back any record ----------
     match /{c}/{d} {
-      allow write: if isAdmin() && c in ['items', 'cal', 'acks', 'config', 'directory', 'members'];
+      allow write: if isAdmin() && c in ['items', 'cal', 'acks', 'config', 'directory', 'members', 'roster'];
     }
 
     // anything not listed above is closed

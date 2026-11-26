@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  Cadet Group 2 Hub, version 2026.11.26 (also in Admin → Site health). This one file is the whole site.
+  Cadet Group 2 Hub, version 2026.11.27 (also in Admin → Site health). This one file is the whole site.
   Read SETUP.md (first-time setup), HANDOVER.md (who holds what, new-term steps, recovery) and MAINTAINING.md (how to change things).
   Sections are marked with /* ===== NAME ===== */ comments; search for them with Ctrl+F.
   Who sees what is decided by a person's positions (Admin → Load the UMD) and enforced by firestore.rules.
@@ -1298,14 +1298,23 @@ function formEdit(old,home){
 /* ================= ADMIN: people & positions, requests, settings, backup ================= */
 const ADM={members:[],requests:[]};
 function watchAdmin(){ if(S.demo||watchAdmin.on||!S.isAdmin) return; watchAdmin.on=true;
-  DB.listeners.push(FB.fs.collection('members').onSnapshot(q=>{ ADM.members=q.docs.map(d=>({email:d.id,...d.data()})); schedule(); },e=>console.warn(e)));
+  DB.listeners.push(FB.fs.collection('members').onSnapshot(q=>{ ADM.members=q.docs.map(d=>({email:d.id,...d.data()})); syncDirectory(); schedule(); },e=>console.warn(e)));
+  watchRoster();
   DB.listeners.push(FB.fs.collection('requests').onSnapshot(q=>{ ADM.requests=q.docs.map(d=>({email:d.id,...d.data()})); schedule(); },e=>console.warn(e))); }
-const allMembers=()=>S.demo?DEMO.people.map(p=>({email:p.email,name:p.name,role:p.admin?'admin':'member',posts:p.posts})):ADM.members;
-async function saveMember(email,name,posts,role){ email=email.trim().toLowerCase(); const rec={name:name||'',role:role||'member',...derive(posts),updated:new Date().toISOString(),updatedBy:S.email};
+const allMembers=()=>S.demo?DEMO.people.map(p=>({email:p.email,name:p.name,role:p.admin?'admin':'member',posts:p.posts,slot:p.slot})):ADM.members;
+async function saveMember(email,name,posts,role){ email=email.trim().toLowerCase(); const old=allMembers().find(x=>x.email===email)||{}; const rec={name:name||'',role:role||'member',...derive(posts),...(old.slot?{slot:old.slot}:{}),updated:new Date().toISOString(),updatedBy:S.email};
   if(S.demo){ const p=DEMO.people.find(x=>x.email===email); if(p){ p.name=rec.name; p.posts=rec.posts; p.admin=rec.role==='admin'; } else DEMO.people.push({email,name:rec.name,posts:rec.posts,admin:rec.role==='admin'}); }
   else { await FB.fs.doc('members/'+email).set(rec); await FB.fs.doc('requests/'+email).delete().catch(()=>{}); }
   await rebuildDirectory(email,rec); }
-async function removeMember(email){ if(S.demo){ DEMO.people=DEMO.people.filter(p=>p.email!==email); } else await FB.fs.doc('members/'+email).delete(); await rebuildDirectory(email,null); }
+async function removeMember(email){ const m=allMembers().find(x=>x.email===email);
+  if(S.demo){ DEMO.people=DEMO.people.filter(p=>p.email!==email); } else await FB.fs.doc('members/'+email).delete();
+  if(m&&m.slot) await rosterFree(m.slot); await rebuildDirectory(email,null); }
+// People who claim their job at sign-in can't write the Directory, so whenever a site admin has the site open the
+// Directory is rebuilt from the access list if it's out of date.
+function syncDirectory(){ clearTimeout(syncDirectory.t); syncDirectory.t=setTimeout(()=>{ if(S.demo||!S.isAdmin) return;
+  const want=JSON.stringify(ADM.members.map(m=>({name:m.name||m.email,email:m.email,posts:m.posts||[]})).sort((a,b)=>a.name.localeCompare(b.name)));
+  const have=JSON.stringify((S.dir.people||[]).map(p=>({name:p.name,email:p.email,posts:p.posts||[]})));
+  if(want!==have) FB.fs.doc('directory/all').set({j:JSON.stringify({people:JSON.parse(want)}),by:S.uid,at:firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.warn('dir',e)); },2000); }
 // the Directory tab reads one small public record built from the access list
 async function rebuildDirectory(changed,rec){ const list=allMembers().filter(m=>m.email!==changed).map(m=>({name:m.name||m.email,email:m.email,posts:m.posts||[]}));
   if(rec) list.push({name:rec.name||changed,email:changed,posts:rec.posts}); list.sort((a,b)=>a.name.localeCompare(b.name));
@@ -1330,7 +1339,7 @@ async function bulkAdd(text){ const rows=new Map(); const bad=[];
   for(const [email,r] of rows){ const old=have.get(email)||{}; await saveMember(email,r.name||old.name||'',[...(old.posts||[]),...r.posts],r.admin?'admin':(old.role||'member')); n++; }
   return {n,bad}; }
 VIEWS.admin=function(){ if(!S.isAdmin) return emptyState('Site admins only.'); watchAdmin();
-  const [v,vSeg]=seg('adm',[['umd','Load the UMD'],['people','People & positions'],['req','Requests'],['set','Site settings'],['bk','Backup'],['term','New term'],['health','Site health']],'umd');
+  const [v,vSeg]=seg('adm',[['umd','Load the UMD'],['people','People & positions'],['req','Requests'+(ADM.requests.length?` (${ADM.requests.length})`:'')],['set','Site settings'],['bk','Backup'],['term','New term'],['health','Site health']],'umd');
   return h('div',{class:'stack'},head('Admin','Who can sign in, what each person holds, and the site’s settings. Positions decide what each person sees.',vSeg),
     backupNag(),v==='umd'?umdPanel():v==='people'?adminPeople():v==='req'?adminRequests():v==='set'?adminSettings():v==='term'?adminNewTerm():v==='health'?adminHealth():adminBackup()); };
 function adminPeople(){
@@ -1357,7 +1366,7 @@ function adminPeople(){
     h('div',{class:'panel'},h('div',{class:'row'},h('h3',{style:'margin:0'},`People (${allMembers().length})`),h('span',{class:'spacer'}),h('input',{type:'text',placeholder:'Search…',value:st.q,style:'max-width:200px',onchange:e=>{ st.q=e.target.value; render(); }})),
       h('div',{class:'tw',style:'margin-top:8px'},h('table',{class:'t'},h('thead',null,h('tr',null,['Person','Positions','Add a position','Admin',''].map(x=>h('th',null,x)))),
         h('tbody',null,mems.map(m=>{ const k=m.email; st.addU[k]=st.addU[k]||''; st.addP[k]=st.addP[k]||'';
-          return h('tr',null,h('td',null,h('input',{type:'text',value:m.name||'',placeholder:'Name',style:'min-width:140px;padding:3px 6px',onchange:e=>saveMember(k,e.target.value.trim(),m.posts,m.role).then(()=>toast('Saved'))}),h('div',{class:'small mono muted',style:'overflow-wrap:anywhere'},k)),
+          return h('tr',null,h('td',null,h('input',{type:'text',value:m.name||'',placeholder:'Name',style:'min-width:140px;padding:3px 6px',onchange:e=>saveMember(k,e.target.value.trim(),m.posts,m.role).then(()=>toast('Saved'))}),h('div',{class:'small mono muted',style:'overflow-wrap:anywhere'},k),h('div',{class:'small muted'},m.slot?'Found as: '+((rosterAll().find(x=>x.id===m.slot)||{}).name||m.slot.split('__')[1].replace('-',' '))+' · '+postLabel(m.slot.split('__')[0]):'Added by an admin')),
             h('td',null,h('div',{class:'row',style:'gap:4px'},(m.posts||[]).length?(m.posts||[]).map(p=>h('span',{class:'chip sky'},postLabel(p),' ',h('button',{class:'linkbtn',style:'color:var(--coral);text-decoration:none','aria-label':'Remove '+postLabel(p),onclick:()=>saveMember(k,m.name,(m.posts||[]).filter(x=>x!==p),m.role).then(()=>toast('Removed'))},'×'))):h('span',{class:'small muted'},'None'))),
             h('td',null,h('div',{class:'row',style:'gap:4px;flex-wrap:nowrap'},h('select',{style:'width:auto;padding:3px',onchange:e=>st.addU[k]=e.target.value},[['','Unit…'],...UNITS().map(u=>[u,u])].map(([u,l])=>h('option',{value:u,selected:st.addU[k]===u},l))),
               h('select',{style:'width:auto;padding:3px',onchange:e=>st.addP[k]=e.target.value},[['','Position…'],...posOpts].map(([c,l])=>h('option',{value:c,selected:st.addP[k]===c},l))),
@@ -1366,9 +1375,10 @@ function adminPeople(){
             h('td',null,k===S.email?h('span',{class:'small muted'},'you'):confirmBtn('Remove',()=>{ if(m.role==='admin'&&admins.length<=1) return toast('The site needs at least one admin.'); return removeMember(k).then(()=>toast('Removed')); }))); }))))));
 }
 function adminRequests(){ const r=S.demo?[]:ADM.requests;
-  return h('div',{class:'panel'},h('h3',null,'People who signed in but aren’t on the list'),h('p',{class:'small muted'},'Add them on People & positions with their position. Their request disappears once they’re added.'),
-    r.length?h('ul',{class:'list'},r.map(x=>h('li',null,h('div',{class:'grow'},h('b',null,x.name||'(no name)'),h('div',{class:'small mono muted'},x.email),x.note?h('div',{class:'small'},x.note):null),
-      h('button',{class:'btn sm pri',onclick:()=>{ S.edit.adm=S.edit.adm||{addU:{},addP:{}}; S.edit.adm.bulk=`${x.email}, ${x.name||''}, `; S.sub.adm='people'; render(); }},'Add'),confirmBtn('Dismiss',()=>FB.fs.doc('requests/'+x.email).delete())))):h('p',{class:'muted'},'No one is waiting.')); }
+  return h('div',{class:'panel'},h('h3',null,'People who couldn’t be matched to the UMD'),h('p',{class:'small muted'},'They signed in with Google but their name and job didn’t match a roster spot (a spelling difference, a nickname, or a job not on the UMD yet). Approve gives them the job they picked.'),
+    r.length?h('ul',{class:'list'},r.map(x=>{ const post=/^[A-Za-z0-9]+:[A-Za-z0-9]+$/.test(x.post||'')?x.post:''; return h('li',null,h('div',{class:'grow'},h('b',null,x.name||'(no name)'),post?h('span',{class:'chip sky',style:'margin-left:6px'},postLabel(post)):null,h('div',{class:'small mono muted'},x.email),x.note?h('div',{class:'small'},x.note):null),
+      post?h('button',{class:'btn sm pri',onclick:async()=>{ await saveMember(x.email,x.name||'',[post],'member'); toast('Approved: '+(x.name||x.email)); }},'Approve'):h('button',{class:'btn sm',onclick:()=>{ S.edit.adm=S.edit.adm||{addU:{},addP:{}}; S.edit.adm.bulk=`${x.email}, ${x.name||''}, `; S.sub.adm='people'; render(); }},'Add'),
+      confirmBtn('Dismiss',()=>FB.fs.doc('requests/'+x.email).delete())); })):h('p',{class:'muted'},'No one is waiting.')); }
 function adminSettings(){ const st=S.edit.set||(S.edit.set=JSON.parse(JSON.stringify(cfg())));
   st.indorser=st.indorser||{}; const unitsTxt=S.edit.unitsTxt!=null?S.edit.unitsTxt:(st.units||DEFAULT_UNITS).join(', ');
   return h('div',{class:'stack'},
@@ -1391,7 +1401,7 @@ function adminBackup(){ return h('div',{class:'panel stack'},h('h3',{style:'marg
     S.demo?null:h('label',{class:'btn'},'Restore from a backup…',h('input',{type:'file',accept:'.json,application/json',hidden:true,onchange:async e=>{ const f=e.target.files[0]; if(!f) return; try{ const data=JSON.parse(await f.text()); let n=0; for(const p in data){ if(p.split('/').length!==2) continue; const x={...data[p]}; if(typeof x.at==='number') x.at=firebase.firestore.Timestamp.fromMillis(x.at); await FB.fs.doc(p).set(x); n++; } toast(`Restored ${n} records`); }catch(x){ console.error(x); toast('Restore failed: '+(x.message||x)); } }})))); }
 
 /* ================= ADMIN: backups reminder, new term, site health ================= */
-const SITE_VERSION='2026.11.26';
+const SITE_VERSION='2026.11.27';
 const backupAge=()=>{ need('backupinfo'); const b=S.backupinfo; return b&&b.at?daysTo(b.at)*-1:null; };
 function backupNag(){ if(S.demo) return null; const a=backupAge(); if(a!=null&&a<30) return null;
   return h('div',{class:'banner warn small'},h('b',null,a==null?'No backup on record. ':`Last backup was ${a} days ago. `),'Download one now (Backup) and save it to Group 2’s private Teams files, never GitHub.'); }
@@ -2133,10 +2143,34 @@ function miscForm(old){ const st=S.edit.mf||(S.edit.mf=old?{...old}:{id:uid(),ti
     h('div',{class:'small muted'},'Everyone who can sign in can open what’s here, so keep FOUO and personal information out.'),
     h('div',{class:'row'},old?confirmBtn('Delete',async()=>{ const base=miscList(); await mutateConfig('misc',v=>({...v,list:(Array.isArray(v.list)?v.list:base).filter(x=>x.id!==old.id)})); S.edit.mf=null; closeDialog(); }):null,h('span',{class:'spacer'}),h('button',{class:'btn',onclick:()=>{ S.edit.mf=null; closeDialog(); }},'Cancel'),h('button',{class:'btn pri',onclick:save},'Save'))); }
 
-/* ================= ADMIN: load the UMD =================
-   Paste the UMD from Excel. Each row's unit + position decides access; school email is the sign-in. Positions the site
-   doesn't use (flight commanders, element leaders…) get no access. People on the access list who aren't on the new UMD
-   lose their positions (site admins keep admin). */
+/* ================= ACCESS: the UMD roster and claiming a job =================
+   Admins paste the UMD; every row with a position the site uses becomes a roster record roster/{post__first-last}
+   holding that job's access fields. People sign in with any Google account, type their name and pick their job; if
+   that opens a roster record that isn't claimed yet, they copy its access onto their own record and claim it. No
+   emails are needed. The UMD's Email column, if there is one, is ignored. */
+const RANKS=/^(c[1-4]c|cadet|cdt|c\/?col|c\/?lt\s?col|c\/?maj|c\/?capt|c\/?1st\s?lt|c\/?2nd\s?lt|c\/?cmsgt|c\/?smsgt|c\/?msgt|c\/?tsgt|c\/?ssgt|c\/?sra|c\/?a1c|c\/?amn)$/;
+// "SMITH, John Q", "C2C John Q. Smith", "john smith" → "john-smith" (first and last name only, so middle names, initials and ranks don't matter)
+function normName(n){ let t=String(n||'').toLowerCase().replace(/[’']/g,'');
+  if(t.includes(',')){ const [last,rest]=t.split(',',2); t=(rest||'')+' '+last; }
+  const w=t.replace(/[^a-z\s-]/g,' ').split(/\s+/).map(x=>x.replace(/^-+|-+$/g,'')).filter(x=>x&&!RANKS.test(x)&&x.length>1&&!/^(jr|sr|ii|iii|iv)$/.test(x));
+  return w.length?(w.length===1?w[0]:w[0]+'-'+w[w.length-1]):''; }
+const slotId=(post,name)=>post&&normName(name)?`${post}__${normName(name)}`:'';
+const prettyName=n=>String(n||'').replace(/\s+/g,' ').trim().replace(/^(C[1-4]C|Cadet|Cdt)\s+/i,'');
+const ADM_R={roster:[]};
+function watchRoster(){ if(S.demo||watchRoster.on||!S.isAdmin) return; watchRoster.on=true;
+  DB.listeners.push(FB.fs.collection('roster').onSnapshot(q=>{ ADM_R.roster=q.docs.map(d=>({id:d.id,...d.data()})); schedule(); },e=>console.warn(e))); }
+const rosterAll=()=>S.demo?(DEMO.roster||[]):ADM_R.roster;
+function rosterRec(slot,name,post){ return {name:prettyName(name),post,...derive([post]),claimedBy:'',claimedAt:''}; }
+async function rosterPut(rec){ if(S.demo){ DEMO.roster=(DEMO.roster||[]).filter(x=>x.id!==rec.id).concat([rec]); return; } const {id,...d}=rec; await FB.fs.doc('roster/'+id).set(d); }
+async function rosterDel(id){ if(S.demo){ DEMO.roster=(DEMO.roster||[]).filter(x=>x.id!==id); return; } await FB.fs.doc('roster/'+id).delete(); }
+async function rosterFree(id){ if(!id) return; if(S.demo){ const r=(DEMO.roster||[]).find(x=>x.id===id); if(r){ r.claimedBy=''; r.claimedAt=''; } return; } await FB.fs.doc('roster/'+id).update({claimedBy:'',claimedAt:''}).catch(()=>{}); }
+// the person signing in claims a job: one batch writes their access record and marks the roster record claimed
+async function claimJob(name,post){ const id=slotId(post,name); if(!id) return {err:'Type your first and last name.'};
+  let r; try{ const s=await FB.fs.doc('roster/'+id).get(); if(!s.exists) return {err:'nomatch'}; r=s.data(); }catch(e){ return {err:e.code==='permission-denied'?'nomatch':'net'}; }
+  if(r.claimedBy&&r.claimedBy!==S.email) return {err:'taken'};
+  const me=FB.fs.doc('members/'+S.email), slot=FB.fs.doc('roster/'+id), at=new Date().toISOString();
+  const b=FB.fs.batch(); b.set(me,{name:r.name,role:'member',posts:r.posts,cmdUnits:r.cmdUnits,unitDivs:r.unitDivs,divs:r.divs,units:r.units,gDivs:r.gDivs,slot:id,claimedAt:at}); b.update(slot,{claimedBy:S.email,claimedAt:at});
+  try{ await withRetry(()=>b.commit()); return {ok:true}; }catch(e){ console.warn(e); return {err:e.code==='permission-denied'?'taken':'net'}; } }
 const UMD_COLS=[['unit',/^(unit|squadron|sq|org|organization|cs)\b/i],['pos',/^(duty\s*)?(position|title|pos|duty|job|billet)/i],['cls',/^(class|cls|yog|grad)/i],['rank',/^(rank|grade)/i],['name',/^(full\s*)?name$/i],['last',/^last/i],['first',/^first/i],['email',/e-?mail/i]];
 function parseUmdRows(text){ const rows=String(text||'').split(/\r?\n/).map(r=>r.split('\t').map(c=>c.trim())).filter(r=>r.some(Boolean)); let map=null, start=0;
   for(let i=0;i<Math.min(rows.length,8);i++){ const m={}; rows[i].forEach((c,j)=>{ const hit=UMD_COLS.find(([k,re])=>re.test(c)&&m[k]===undefined); if(hit) m[hit[0]]=j; }); if(m.pos!==undefined&&(m.name!==undefined||m.last!==undefined||m.email!==undefined)){ map=m; start=i+1; break; } }
@@ -2153,30 +2187,38 @@ function parseUmdRows(text){ const rows=String(text||'').split(/\r?\n/).map(r=>r
     const pos=g('pos'); if(!pos&&!name) return;
     out.push({unit:u,pos,name:name.replace(/\s+/g,' '),rank:g('rank'),email,guessed,post:u&&pos?parsePost(u+' '+pos):null}); });
   return {rows:out}; }
-function umdPlan(rows){ const by=new Map();
-  rows.forEach(r=>{ if(!r.email||!r.post) return; const x=by.get(r.email)||{email:r.email,name:r.name,posts:[],guessed:r.guessed}; if(!x.posts.includes(r.post)) x.posts.push(r.post); by.set(r.email,x); });
-  const have=new Map(allMembers().map(m=>[m.email,m]));
-  const add=[],change=[],same=[]; for(const x of by.values()){ const o=have.get(x.email); if(!o) add.push(x); else if([...(o.posts||[])].sort().join()!==[...x.posts].sort().join()) change.push({...x,old:o.posts||[]}); else same.push(x); }
-  const drop=allMembers().filter(m=>!by.has(m.email)&&(m.posts||[]).length);
-  return {add,change,same,drop,noAccess:rows.filter(r=>!r.post),noEmail:rows.filter(r=>r.post&&!r.email)}; }
-function umdPanel(){ const st=S.edit.umd||(S.edit.umd={text:''}); const parsed=st.text.trim()?parseUmdRows(st.text):null; const plan=parsed&&parsed.rows?umdPlan(parsed.rows):null;
-  const list=(t,l,f,cls)=>l.length?h('details',{class:'box',open:cls==='bad'?true:null},h('summary',null,h('b',null,`${t} (${l.length})`)),h('ul',{class:'list',style:'margin-top:6px'},l.slice(0,200).map(x=>h('li',{class:'small'},f(x))))):null;
-  return h('div',{class:'panel stack'},h('h3',{style:'margin:0'},'Load the UMD'),
-    h('p',{class:'small muted',style:'margin:0'},'Copy the UMD from Excel (header row included) and paste it here. Each row’s unit and position decide what that person sees; they sign in with their school email. If there’s no Email column, the site builds c27first.last@afacademy.af.edu from the Class and name (check those). Unit can be its own column or a section row (“CS20”, “Group 2 Staff”).'),
-    h('textarea',{rows:6,placeholder:'Unit\tPosition\tClass\tRank\tName\tEmail\nG2\tCommander\t2027\tC1C\tSophie Kent\tc27sophie.kent@afacademy.af.edu\nCS20\tA4/6 Division Chief\t2028\tC2C\tFirst Last\t…',value:st.text,oninput:e=>{ st.text=e.target.value; },onchange:()=>render()}),
-    parsed&&parsed.err?h('div',{class:'banner bad small'},parsed.err):null,
-    plan?h('div',{class:'stack',style:'gap:8px'},
-      h('div',{class:'row small'},h('span',{class:'chip ok'},`${plan.add.length} new`),h('span',{class:'chip sky'},`${plan.change.length} position changes`),h('span',{class:'chip grey'},`${plan.same.length} unchanged`),h('span',{class:'chip bad'},`${plan.drop.length} lose access`)),
-      list('New access',plan.add,x=>[h('b',null,x.name||x.email),' · ',x.posts.map(postLabel).join(', '),' · ',h('span',{class:'mono'},x.email),x.guessed?h('span',{class:'chip sun',style:'margin-left:4px'},'email guessed'):null]),
-      list('Position changes',plan.change,x=>[h('b',null,x.name||x.email),': ',x.old.map(postLabel).join(', ')||'none',' → ',x.posts.map(postLabel).join(', ')]),
-      list('Lose access (not on the new UMD)',plan.drop,x=>[h('b',null,x.name||x.email),' · ',(x.posts||[]).map(postLabel).join(', '),x.role==='admin'?' · stays a site admin':'']),
-      list('No email: add an Email or Class column',plan.noEmail,x=>`${x.unit} ${x.pos} · ${x.name}`,'bad'),
-      list('On the UMD with no site access (position not used here)',plan.noAccess,x=>`${x.unit||'?'} · ${x.pos||'?'} · ${x.name}`),
-      h('div',{class:'row'},h('span',{class:'spacer'}),h('button',{class:'btn',onclick:()=>{ S.edit.umd=null; render(); }},'Clear'),
-        confirmBtn(`Apply the UMD (${plan.add.length+plan.change.length+plan.drop.length} changes)`,async()=>{ const have=new Map(allMembers().map(m=>[m.email,m])); let n=0;
-          try{ for(const x of [...plan.add,...plan.change]){ const o=have.get(x.email)||{}; await saveMember(x.email,x.name||o.name||'',x.posts,o.role||'member'); n++; }
-            for(const m of plan.drop){ if(m.email===S.email||m.role==='admin') await saveMember(m.email,m.name,[],m.role); else await removeMember(m.email); n++; }
-            S.edit.umd=null; toast(`UMD applied · ${plural(n,'change')}`); render(); }catch(e){ console.error(e); toast('Only site admins can do that.'); } },'btn pri'))):null); }
+// compare the pasted UMD with the roster already loaded: new jobs, unchanged jobs, jobs that leave (their holder loses access)
+function umdPlan(rows){ const want=new Map();
+  rows.forEach(r=>{ if(!r.post||!normName(r.name)) return; const id=slotId(r.post,r.name); if(!want.has(id)) want.set(id,{id,name:r.name,post:r.post}); });
+  const have=new Map(rosterAll().map(x=>[x.id,x]));
+  const add=[...want.values()].filter(x=>!have.has(x.id)), same=[...want.values()].filter(x=>have.has(x.id));
+  const drop=[...have.values()].filter(x=>!want.has(x.id));
+  return {add,same,drop,noAccess:rows.filter(r=>!r.post),noName:rows.filter(r=>r.post&&!normName(r.name))}; }
+function umdPanel(){ watchRoster(); const st=S.edit.umd||(S.edit.umd={text:''}); const parsed=st.text.trim()?parseUmdRows(st.text):null; const plan=parsed&&parsed.rows?umdPlan(parsed.rows):null;
+  const list=(t,l,f,cls)=>l.length?h('details',{class:'box',open:cls==='bad'?true:null},h('summary',null,h('b',null,`${t} (${l.length})`)),h('ul',{class:'list',style:'margin-top:6px'},l.slice(0,300).map(x=>h('li',{class:'small'},f(x))))):null;
+  const R=rosterAll(); const claimed=R.filter(x=>x.claimedBy);
+  return h('div',{class:'stack'},
+    h('div',{class:'panel stack'},h('h3',{style:'margin:0'},'Load the UMD'),
+      h('p',{class:'small muted',style:'margin:0'},'Copy the UMD from Excel (header row included) and paste it here. Each row with a job the site uses becomes a spot on the roster. People then sign in with Google, type their name and pick their job; when both match a spot, they’re in. No emails needed.'),
+      h('textarea',{rows:6,placeholder:'Unit\tPosition\tRank\tName\nG2\tCommander\tC1C\tSophie Kent\nCS20\tA4/6 Division Chief\tC2C\tFirst Last',value:st.text,oninput:e=>{ st.text=e.target.value; },onchange:()=>render()}),
+      parsed&&parsed.err?h('div',{class:'banner bad small'},parsed.err):null,
+      plan?h('div',{class:'stack',style:'gap:8px'},
+        h('div',{class:'row small'},h('span',{class:'chip ok'},`${plan.add.length} new jobs`),h('span',{class:'chip grey'},`${plan.same.length} unchanged`),h('span',{class:'chip bad'},`${plan.drop.length} leaving`)),
+        list('New on the roster',plan.add,x=>[h('b',null,prettyName(x.name)),' · ',postLabel(x.post)]),
+        list('Leaving the roster (whoever claimed it loses access)',plan.drop,x=>[h('b',null,x.name),' · ',postLabel(x.post),x.claimedBy?' · claimed by '+x.claimedBy:' · not claimed']),
+        list('No name in the row',plan.noName,x=>`${x.unit} ${x.pos}`,'bad'),
+        list('On the UMD with no site access (position not used here)',plan.noAccess,x=>`${x.unit||'?'} · ${x.pos||'?'} · ${x.name}`),
+        h('div',{class:'row'},h('span',{class:'spacer'}),h('button',{class:'btn',onclick:()=>{ S.edit.umd=null; render(); }},'Clear'),
+          confirmBtn(`Apply the UMD (${plan.add.length+plan.drop.length} changes)`,async()=>{ let n=0;
+            try{ for(const x of plan.add){ await rosterPut({id:x.id,...rosterRec(x.id,x.name,x.post)}); n++; }
+              const mem=new Map(allMembers().map(m=>[m.email,m]));
+              for(const x of plan.drop){ if(x.claimedBy){ const m=mem.get(x.claimedBy); if(m&&m.role!=='admin'&&m.email!==S.email) await removeMember(m.email); else if(m) await saveMember(m.email,m.name,(m.posts||[]).filter(p=>p!==x.post),m.role); } await rosterDel(x.id); n++; }
+              S.edit.umd=null; toast(`UMD applied · ${plural(n,'change')}`); render(); }catch(e){ console.error(e); toast('Only site admins can do that.'); } },'btn pri'))):null),
+    h('div',{class:'panel'},h('div',{class:'row'},h('h3',{style:'margin:0;flex:1'},`Roster (${R.length})`),h('span',{class:'small muted'},`${claimed.length} claimed · ${R.length-claimed.length} waiting`)),
+      R.length?h('div',{class:'tw',style:'margin-top:8px'},h('table',{class:'t'},h('thead',null,h('tr',null,['Name','Job','Signed in as',''].map(x=>h('th',null,x)))),
+        h('tbody',null,R.slice().sort((a,b)=>String(a.post).localeCompare(String(b.post))||String(a.name).localeCompare(String(b.name))).map(x=>h('tr',null,h('td',null,x.name),h('td',{class:'small'},postLabel(x.post)),
+          h('td',{class:'small mono'},x.claimedBy||h('span',{class:'muted'},'not yet')),
+          h('td',null,x.claimedBy?confirmBtn('Free this spot',async()=>{ const m=allMembers().find(y=>y.email===x.claimedBy); if(m&&m.role!=='admin') await removeMember(m.email); else await rosterFree(x.id); toast('Freed: they can claim it again'); render(); }):null)))))):h('p',{class:'small muted'},'Nothing loaded yet.'))); }
 </script>
 <script>
 /* ================= FIRST SERGEANT WEEKLY WRAP-UP =================
@@ -2378,36 +2420,36 @@ function signInPanel(){
   const logo=h('img',{src:'logo.png',alt:'',style:'height:80px;width:auto;margin:0 auto;display:block'});
   const demoBtn=h('button',{class:'btn',style:'margin:14px auto 0',onclick:()=>startDemo()},'Preview with sample data');
   if(!fbConfigured()) return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Cadet Group 2 Hub'),h('p',{class:'muted'},'This site isn’t connected to its database yet. Follow SETUP.md to create the free Firebase project and paste its settings into config.js.'),h('p',{class:'small muted'},'Meanwhile you can click around with made-up data and switch between positions to see what each person sees.'),demoBtn);
-  if(FB.state==='verify') return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Confirm your email'),h('p',{class:'muted'},'We sent a confirmation link to ',h('b',null,FB.user.email),'. Open it, then click below. Check junk or quarantine too.'),
-    h('div',{class:'row',style:'justify-content:center'},h('button',{class:'btn pri',onclick:async()=>{ await FB.user.reload(); if(FB.auth.currentUser.emailVerified){ await FB.auth.currentUser.getIdToken(true); location.reload(); } else toast('Not confirmed yet.'); }},'I’ve confirmed it'),h('button',{class:'btn',onclick:()=>FB.user.sendEmailVerification().then(()=>toast('Sent')).catch(()=>toast('Already sent. Wait a few minutes.'))},'Send it again')),h('button',{class:'btn sm',style:'margin:12px auto 0',onclick:fbSignOut},'Sign out'));
-  if(FB.state==='pending') return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Not on the access list yet'),h('p',{class:'muted'},'You’re signed in as ',h('b',null,FB.user.email),', but that email isn’t on the Group 2 access list.'),
-    FB.requested?h('div',{class:'banner ok small'},'Request sent. This page lets you in as soon as an admin adds you.'):h('div',{class:'stack',style:'gap:8px;max-width:340px;margin:0 auto;text-align:left'},
-      h('label',{class:'f'},'Your name',h('input',{type:'text',value:st.rname||'',oninput:e=>st.rname=e.target.value})),h('label',{class:'f'},'Your position',h('input',{type:'text',placeholder:'CS17 A2 Division Chief',value:st.rnote||'',oninput:e=>st.rnote=e.target.value})),
-      h('button',{class:'btn pri',onclick:async()=>{ if(!(st.rname||'').trim()) return toast('Add your name.'); try{ await FB.fs.doc('requests/'+FB.user.email.toLowerCase()).set({email:FB.user.email.toLowerCase(),name:st.rname.trim(),note:(st.rnote||'').trim().slice(0,120),uid:FB.user.uid,created:new Date().toISOString()}); FB.requested=true; render(); }catch(e){ toast('Couldn’t send the request.'); } }},'Ask for access')),
-    h('button',{class:'btn sm',style:'margin:12px auto 0',onclick:fbSignOut},'Sign out'));
+  if(FB.state==='verify') return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Use Google to sign in'),h('p',{class:'muted'},'Email-and-password sign-in has been replaced by Google sign-in. Sign out, then choose Sign in with Google.'),h('button',{class:'btn pri',style:'margin:0 auto;display:block',onclick:fbSignOut},'Sign out and use Google'));
+  if(FB.state==='pending'){ const c=S.edit.claim||(S.edit.claim={name:'',unit:'',pos:'',msg:'',sent:false});
+    const units=UNITS(); const posOpts=[...CMD,...DIVS()];
+    const post=c.unit&&c.pos?c.unit+':'+c.pos:'';
+    const go=async()=>{ if(!normName(c.name)) { c.msg='Type your first and last name.'; return render(); } if(!post){ c.msg='Pick your unit and your job.'; return render(); }
+      c.busy=true; c.msg=''; render(); let r; try{ r=await claimJob(c.name,post); }catch(e){ console.warn(e); r={err:'net'}; } c.busy=false;
+      if(r.ok){ c.msg=''; toast('Welcome to the Group 2 Hub'); return; }
+      c.msg=r.err==='nomatch'?'nomatch':r.err==='taken'?'taken':r.err==='net'?'The site couldn’t check right now. Check your connection and try again.':r.err; render(); };
+    const ask=async()=>{ try{ await FB.fs.doc('requests/'+S.email).set({email:S.email,name:c.name.trim().slice(0,90),post,note:(c.note||'').trim().slice(0,120),uid:FB.user.uid,created:new Date().toISOString()}); c.sent=true; render(); }catch(e){ toast('Couldn’t send the request. Try again.'); } };
+    return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Find yourself on the UMD'),
+      h('p',{class:'muted'},'Signed in as ',h('b',null,FB.user.email),'. Type your name and pick your job exactly as they are on the Group 2 UMD. If they match, you’re in.'),
+      c.sent?h('div',{class:'banner ok small'},'Request sent to the site admins. This page lets you in as soon as one approves it.'):
+      h('div',{class:'stack',style:'gap:10px;max-width:340px;margin:0 auto;text-align:left'},
+        h('label',{class:'f'},'Your name (first and last)',h('input',{type:'text',autocomplete:'name',placeholder:'First Last',value:c.name,oninput:e=>{ c.name=e.target.value; },onkeydown:e=>{ if(e.key==='Enter') go(); }})),
+        h('label',{class:'f'},'Unit',h('select',{onchange:e=>{ c.unit=e.target.value; render(); }},[h('option',{value:''},'Pick your unit…'),...units.map(u=>h('option',{value:u,selected:c.unit===u},u===GROUP?'Group 2 staff':unitLabel(u)))])),
+        h('label',{class:'f'},'Job',h('select',{onchange:e=>{ c.pos=e.target.value; render(); }},[h('option',{value:''},'Pick your job…'),...posOpts.map(([k,l])=>h('option',{value:k,selected:c.pos===k},(k==='FS'?'First Sergeant':l)+(CMD.some(x=>x[0]===k)?'':(k==='FS'?'':' Division Chief'))))])),
+        c.msg==='nomatch'?h('div',{class:'banner warn small',style:'margin:0'},h('b',null,'No match on the UMD. '),'Check the spelling of your name as it appears on the UMD, and your unit and job. Still no luck? Send a request and a site admin will check it.',
+          h('div',{class:'row',style:'margin-top:6px'},h('button',{class:'btn sm',onclick:ask},'Ask an admin to let me in'))):
+        c.msg==='taken'?h('div',{class:'banner bad small',style:'margin:0'},h('b',null,'Someone already signed in with that name and job. '),'If that wasn’t you, ask a site admin: they can free the spot.',h('div',{class:'row',style:'margin-top:6px'},h('button',{class:'btn sm',onclick:ask},'Ask an admin'))):
+        c.msg?h('div',{class:'banner info small',style:'margin:0'},c.msg):null,
+        h('button',{class:'btn pri',disabled:c.busy?true:null,onclick:go},c.busy?'Checking…':'Get access')),
+      h('button',{class:'btn sm',style:'margin:12px auto 0',onclick:fbSignOut},'Use a different Google account')); }
   if(FB.state==='checkfail') return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Couldn’t check access'),h('p',{class:'muted'},'The site couldn’t reach the access list (usually a weak connection).'),h('button',{class:'btn pri',onclick:()=>location.reload()},'Try again'));
   if(FB.state!=='out') return h('div',{class:'panel lock'},logo,h('p',{class:'muted'},'Checking your sign-in…'));
-  const mode=st.mode; const set=m=>{ st.mode=m; st.msg=''; render(); };
-  const go=async()=>{ const em=(st.email||'').trim().toLowerCase(); if(!emailOK(em)) return toast('Enter your full email address.');
-    const lock=+(ls('pwlock')||0); if(mode==='in'&&lock>Date.now()){ st.msg=`Too many wrong tries. Wait ${Math.ceil((lock-Date.now())/1000)} seconds, or use Forgot password.`; return render(); }
-    ls('idleOut',0); try{ if(mode==='in'){ try{ await FB.auth.signInWithEmailAndPassword(em,st.pw||''); ls('pwfails',0); }
-        catch(e){ if(/wrong-password|invalid-credential|invalid-login/.test(e.code||'')){ const n=(+(ls('pwfails')||0))+1; ls('pwfails',n); if(n>=5) ls('pwlock',Date.now()+Math.min(15*60,30*2**(n-5))*1000); } throw e; } }
-      else if(mode==='new'){ const bad=pwProblem(st.pw,em); if(bad){ st.msg=bad; return render(); } if(st.pw!==st.pw2) return toast('The passwords don’t match.'); const c=await FB.auth.createUserWithEmailAndPassword(em,st.pw); await c.user.sendEmailVerification().catch(()=>{}); }
-      else { await FB.auth.sendPasswordResetEmail(em).catch(e=>{ if(e.code!=='auth/user-not-found') throw e; }); st.mode='in'; st.msg='If that email has a password, a reset link is on its way.'; render(); } st.pw=st.pw2=''; }
-    catch(e){ st.msg=authMsg(e); render(); } };
-  const key=e=>{ if(e.key==='Enter') go(); };
-  return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},{in:'Group 2 leadership',new:'Create your password',reset:'Reset your password'}[mode]),
-    h('p',{class:'muted'},{in:'Sign in with your cadet email and password.',new:'Use the email a Group 2 admin put on the access list, then pick a password of 12+ characters. We’ll email you once to confirm it’s yours.',reset:'Enter your email and we’ll send a reset link.'}[mode]),
-    h('div',{class:'stack',style:'gap:10px;max-width:320px;margin:0 auto;text-align:left'},
-      h('label',{class:'f'},'Email',h('input',{type:'email',autocomplete:'username',placeholder:'c27first.last@afacademy.af.edu',value:st.email,oninput:e=>st.email=e.target.value,onkeydown:key})),
-      mode!=='reset'?h('label',{class:'f'},'Password',h('input',{type:'password',autocomplete:mode==='new'?'new-password':'current-password',value:st.pw||'',oninput:e=>st.pw=e.target.value,onkeydown:key})):null,
-      mode==='new'?h('label',{class:'f'},'Confirm password',h('input',{type:'password',autocomplete:'new-password',value:st.pw2||'',oninput:e=>st.pw2=e.target.value,onkeydown:key})):null,
-      ls('idleOut')?h('div',{class:'banner info small',style:'margin:0'},'You were signed out after a while with no activity. Sign in again.'):null,
-      st.msg?h('div',{class:'banner info small',style:'margin:0'},st.msg):null,
-      h('button',{class:'btn pri',onclick:go},{in:'Sign in',new:'Create password',reset:'Email me a reset link'}[mode])),
-    h('div',{class:'row',style:'justify-content:center;gap:14px;margin-top:14px'},mode!=='in'?h('button',{class:'linkbtn',onclick:()=>set('in')},'Back to sign in'):null,mode!=='new'?h('button',{class:'linkbtn',onclick:()=>set('new')},'First time? Create your password'):null,mode!=='reset'?h('button',{class:'linkbtn',onclick:()=>set('reset')},'Forgot password?'):null),
-    OFFICIAL_HOST&&location.hostname!==OFFICIAL_HOST&&!/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?h('div',{class:'banner bad small',style:'margin-top:12px'},h('b',null,'Careful: '),`this isn’t the official address (${OFFICIAL_HOST}). Don’t enter your password here.`):null,
-    h('button',{class:'linkbtn small',style:'margin:12px auto 0;display:block',onclick:fbGoogle},'Or sign in with a Google account'));
+  return h('div',{class:'panel lock'},logo,h('h2',{class:'pg'},'Group 2 leadership'),
+    h('p',{class:'muted'},'Sign in with a Google account (a personal Gmail works). The first time, you’ll type your name and pick your job; if they match the Group 2 UMD you’re in. No confirmation email.'),
+    ls('idleOut')?h('div',{class:'banner info small',style:'max-width:340px;margin:0 auto 10px'},'You were signed out after a while with no activity. Sign in again.'):null,
+    h('button',{class:'btn pri',style:'margin:0 auto;display:flex;gap:8px;align-items:center',onclick:()=>{ ls('idleOut',0); fbGoogle(); }},h('span',{style:'font-weight:700'},'G'),'Sign in with Google'),
+    h('p',{class:'small muted',style:'margin-top:14px'},'Use the same Google account every time: the site remembers you by it.'),
+    OFFICIAL_HOST&&location.hostname!==OFFICIAL_HOST&&!/^(localhost|127\.0\.0\.1)$/.test(location.hostname)?h('div',{class:'banner bad small',style:'margin-top:12px'},h('b',null,'Careful: '),`this isn’t the official address (${OFFICIAL_HOST}). Don’t sign in here.`):null);
 }
 
 async function boot(){

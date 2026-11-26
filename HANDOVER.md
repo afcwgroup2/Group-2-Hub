@@ -12,7 +12,7 @@ each with more than one key holder:
 ## Every semester (or whenever the UMD changes)
 Admin → **New term** walks through these steps with buttons, and has **Remove a class** (everyone whose email starts with that class year, admins kept).
 1. **Admin → Backup → Download backup.** Save it in Group 2's private Teams files (never GitHub).
-2. **Admin → Load the UMD:** paste the new UMD from Excel, check the preview (new access, changes, who loses access, guessed emails) and apply.
+2. **Admin → Load the UMD:** paste the new UMD from Excel, check the preview (new spots, spots leaving and who loses access) and apply. New people sign in with Google and claim their job by name; check the Roster list that each spot was claimed by someone you recognize.
 3. Make sure there are at least two site admins, from two classes.
 4. **Admin → Site settings:** update the semester label and the Group CC indorsement signature block.
 5. Close or delete last semester's taskers; delete old calendar entries and approved paperwork you no longer need (keeps the free plan fast).
@@ -59,11 +59,12 @@ account over at turnover too.
 ## If something goes wrong
 - **Deleted something:** Admin → Backup → Restore from a backup.
 - **No admins left:** a Firebase owner opens Firestore → `members` → a person's email → set `role` to `admin`.
-- **Someone sees too much or too little:** check their row on the UMD (unit, position and email) or Admin → People & positions. Removing and re-adding a position refreshes it.
+- **Someone can't get in:** their name or job doesn't match the UMD (spelling) or someone else claimed the spot. Approve their request in Admin → Requests, or fix the UMD and load it again, or Free the spot.
+- **Someone sees too much or too little:** check their row on the UMD (unit and position) or Admin → People & positions. Removing and re-adding a position refreshes it.
 - **"Today's free allowance" banner:** nothing is lost; it resets about 1 AM Mountain. The site keeps showing the last saved copy meanwhile.
 - **Something seems off after an update:** Admin → **Site health → Run the self-test**. Each failed line says how to fix it. "The rules in Firebase are older than this website" means `firestore.rules` wasn't re-published: copy it from GitHub into Firebase → Firestore → Rules → Publish.
 - **Lost the Firebase project** (deleted, or no owner left): create a new project with SETUP.md steps 2–4, then Admin → Backup → Restore from the newest backup file. This is why monthly backups matter; Admin shows a reminder once the last one is 30 days old.
-- **People signed out unexpectedly:** the site signs people out after inactivity (1 hour for Group staff and admins, 4 hours for everyone else) and after 5 wrong passwords asks them to wait before trying again.
+- **People signed out unexpectedly:** the site signs people out after inactivity (1 hour for Group staff and admins, 4 hours for everyone else) and they sign back in with Google.
 
 ## Files that live only inside the site (never on GitHub)
 The GitHub repo is public. Upload these inside the site, behind sign-in, and never commit them:
