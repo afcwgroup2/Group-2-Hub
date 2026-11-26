@@ -2171,10 +2171,26 @@ async function claimJob(name,post){ const id=slotId(post,name); if(!id) return {
   const me=FB.fs.doc('members/'+S.email), slot=FB.fs.doc('roster/'+id), at=new Date().toISOString();
   const b=FB.fs.batch(); b.set(me,{name:r.name,role:'member',posts:r.posts,cmdUnits:r.cmdUnits,unitDivs:r.unitDivs,divs:r.divs,units:r.units,gDivs:r.gDivs,slot:id,claimedAt:at}); b.update(slot,{claimedBy:S.email,claimedAt:at});
   try{ await withRetry(()=>b.commit()); return {ok:true}; }catch(e){ console.warn(e); return {err:e.code==='permission-denied'?'taken':'net'}; } }
+/* No header row (the Group 2 UMD as copied from Excel): each row is
+   Position · Class · Rank · Name · Squadron · Phone · Email, in any order. Cells are recognized by what they look like:
+   class (C1C), rank (C/Col), squadron number, phone, email; the job is the first cell and the name is the other text cell.
+   The job's unit: "Group …" → Group 2; "CS20 …"/"Squadron 20 …" → that squadron; otherwise the row's squadron number.
+   Phone numbers and emails are never saved. */
+function parseUmdLoose(rows){ const out=[]; let unit='';
+  const isCls=c=>/^c[1-4]c$/i.test(c), isRank=c=>/^c\/\s?[a-z]/i.test(c)||/^(cadet|cdt)$/i.test(c), isEmail=c=>/@/.test(c), isSq=c=>/^(cs\s?-?)?\d{1,2}$/i.test(c), isPhone=c=>(c.replace(/\D/g,'').length>=7)&&/^[\d\s()+.-]+$/.test(c);
+  rows.forEach(r=>{ const cells=r.map(c=>c.trim()).filter(Boolean); if(!cells.length) return;
+    if(cells.length===1){ const s=cells[0]; const n=s.match(/(?:CS|Squadron)\s*-?(\d{1,2})/i); if(n) unit='CS'+n[1].padStart(2,'0'); else if(/group/i.test(s)) unit=GROUP; return; }
+    const text=cells.filter(c=>!isCls(c)&&!isRank(c)&&!isEmail(c)&&!isSq(c)&&!isPhone(c));
+    const pos=text[0]||'', name=text[1]||''; const sqCell=cells.find(isSq); const rank=cells.find(isRank)||'';
+    let u=''; const m=pos.match(/(?:\bCS|Squadron)\s*-?(\d{1,2})\b/i);
+    if(/^\s*(deputy\s+)?group\b|\bgroup\b/i.test(pos)) u=GROUP; else if(m) u='CS'+m[1].padStart(2,'0'); else if(unit) u=unit; else if(sqCell) u='CS'+sqCell.replace(/\D/g,'').padStart(2,'0');
+    const job=pos.replace(/(?:\bCS|Squadron)\s*-?\d{1,2}\b/i,'').trim();
+    out.push({unit:u,pos,name:name.replace(/\s+/g,' '),rank,email:'',guessed:false,post:u&&job?parsePost(u+' '+job):null}); });
+  return out.length?{rows:out}:{err:'Nothing to read. Paste the UMD rows from Excel.'}; }
 const UMD_COLS=[['unit',/^(unit|squadron|sq|org|organization|cs)\b/i],['pos',/^(duty\s*)?(position|title|pos|duty|job|billet)/i],['cls',/^(class|cls|yog|grad)/i],['rank',/^(rank|grade)/i],['name',/^(full\s*)?name$/i],['last',/^last/i],['first',/^first/i],['email',/e-?mail/i]];
 function parseUmdRows(text){ const rows=String(text||'').split(/\r?\n/).map(r=>r.split('\t').map(c=>c.trim())).filter(r=>r.some(Boolean)); let map=null, start=0;
   for(let i=0;i<Math.min(rows.length,8);i++){ const m={}; rows[i].forEach((c,j)=>{ const hit=UMD_COLS.find(([k,re])=>re.test(c)&&m[k]===undefined); if(hit) m[hit[0]]=j; }); if(m.pos!==undefined&&(m.name!==undefined||m.last!==undefined||m.email!==undefined)){ map=m; start=i+1; break; } }
-  if(!map) return {err:'Couldn’t find the header row. It needs at least a Position column and a Name (or Last/First) or Email column.'};
+  if(!map) return parseUmdLoose(rows);
   let unit=''; const out=[];
   rows.slice(start).forEach(r=>{ const g=k=>map[k]!==undefined?(r[map[k]]||''):'';
     // a section row like "CS20" or "Cadet Squadron 20" or "Group 2 Staff" sets the unit for the rows under it
@@ -2199,8 +2215,8 @@ function umdPanel(){ watchRoster(); const st=S.edit.umd||(S.edit.umd={text:''});
   const R=rosterAll(); const claimed=R.filter(x=>x.claimedBy);
   return h('div',{class:'stack'},
     h('div',{class:'panel stack'},h('h3',{style:'margin:0'},'Load the UMD'),
-      h('p',{class:'small muted',style:'margin:0'},'Copy the UMD from Excel (header row included) and paste it here. Each row with a job the site uses becomes a spot on the roster. People then sign in with Google, type their name and pick their job; when both match a spot, they’re in. No emails needed.'),
-      h('textarea',{rows:6,placeholder:'Unit\tPosition\tRank\tName\nG2\tCommander\tC1C\tSophie Kent\nCS20\tA4/6 Division Chief\tC2C\tFirst Last',value:st.text,oninput:e=>{ st.text=e.target.value; },onchange:()=>render()}),
+      h('p',{class:'small muted',style:'margin:0'},'Copy the UMD rows from Excel and paste them here, with or without a header row: Job, Class, Rank, Name, Squadron, Phone, Email. Jobs starting with “Group” are Group 2 staff; squadron jobs use the squadron in the job (“CS20 A4/6”) or the Squadron column. Phone numbers and emails aren’t saved. Each row with a job the site uses becomes a spot on the roster; people sign in with Google, type their name and pick their job, and when both match a spot they’re in. They must type the name as the UMD has it (Elizabeth, not Libby).'),
+      h('textarea',{rows:6,placeholder:'Group Commander\tC1C\tC/Col\tSophie Kent\t12\t…\nCS20 A4/6 Division Chief\tC2C\tC/Capt\tFirst Last\t20\t…',value:st.text,oninput:e=>{ st.text=e.target.value; },onchange:()=>render()}),
       parsed&&parsed.err?h('div',{class:'banner bad small'},parsed.err):null,
       plan?h('div',{class:'stack',style:'gap:8px'},
         h('div',{class:'row small'},h('span',{class:'chip ok'},`${plan.add.length} new jobs`),h('span',{class:'chip grey'},`${plan.same.length} unchanged`),h('span',{class:'chip bad'},`${plan.drop.length} leaving`)),
